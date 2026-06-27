@@ -1,0 +1,8 @@
+# Dev-only seed audio for DevSeedingProjectStore — never commit third-party/copyrighted audio.
+/DevAssets/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.DS_Store
