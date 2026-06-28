@@ -1,5 +1,5 @@
 import Accelerate
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreML
 
 /// Real on-device source separation via a pre-trained HTDemucs Core ML model —
@@ -181,7 +181,7 @@ actor CoreMLStemSeparator: StemSeparationService {
         let base = channel * strides[1]
         let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: array.count)
         if strides[3] == 1 && strides[2] == DemucsDSP.frameCount {
-            plane.withUnsafeBufferPointer { src in
+            _ = plane.withUnsafeBufferPointer { src in
                 memcpy(ptr + base, src.baseAddress!, plane.count * MemoryLayout<Float>.size)
             }
         } else {
@@ -199,7 +199,7 @@ actor CoreMLStemSeparator: StemSeparationService {
         let base = channel * strides[1]
         let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: array.count)
         if strides[2] == 1 {
-            samples.withUnsafeBufferPointer { src in
+            _ = samples.withUnsafeBufferPointer { src in
                 memcpy(ptr + base, src.baseAddress!, samples.count * MemoryLayout<Float>.size)
             }
         } else {
@@ -287,12 +287,11 @@ actor CoreMLStemSeparator: StemSeparationService {
                 throw StemSeparationError.processingFailed
             }
             try sourceFile.read(into: sourceBuffer)
-            var conversionError: NSError?
-            converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
-                outStatus.pointee = .haveData
-                return sourceBuffer
-            }
-            if let conversionError { throw conversionError }
+            // The whole input is already in memory as one buffer, so the simple
+            // one-shot conversion applies — no need for the closure-based streaming
+            // API, which also sidesteps having to capture a non-Sendable
+            // AVAudioPCMBuffer in an @Sendable closure.
+            try converter.convert(to: outputBuffer, from: sourceBuffer)
         }
 
         let frameCount = Int(outputBuffer.frameLength)

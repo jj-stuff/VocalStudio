@@ -163,6 +163,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VocalStudio/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Vocal Studio";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Vocal Studio records your voice so you can sing over backing tracks and apply vocal effects.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -200,6 +201,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VocalStudio/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Vocal Studio";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Vocal Studio records your voice so you can sing over backing tracks and apply vocal effects.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

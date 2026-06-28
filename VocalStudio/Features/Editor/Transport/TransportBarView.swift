@@ -12,43 +12,40 @@ struct TransportBarView: View {
     let onSeparateStems: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Time display
-            timeDisplay
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 16)
+        VStack(spacing: 14) {
+            HStack {
+                timeDisplay
+                Spacer()
+                separateButton
+            }
 
-            // Core transport buttons
-            HStack(spacing: 20) {
+            HStack(spacing: 32) {
                 rewindButton
                 playPauseButton
                 recordButton
             }
-            .frame(maxWidth: .infinity)
-
-            // Stem separation button
-            stemButton
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 16)
         }
-        .frame(height: 64)
-        .glassEffect(in: Rectangle())
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        // Fully rounded on all four corners — this bar floats as its own island, with
+        // margin around it (added by the caller) rather than sitting flush against the
+        // nav bar and screen edges.
+        .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(height: 0.5)
+            RoundedRectangle(cornerRadius: DS.Radius.hero)
+                .stroke(.white.opacity(0.08), lineWidth: 0.5)
         }
     }
 
     // MARK: - Subviews
 
     private var timeDisplay: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(formatTime(currentTime))
-                .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                .font(.system(size: 30, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.primary)
             Text(formatTime(duration))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -56,8 +53,10 @@ struct TransportBarView: View {
     private var rewindButton: some View {
         Button(action: onRewind) {
             Image(systemName: "backward.end.fill")
-                .font(.system(size: 18))
+                .font(.system(size: 20))
                 .foregroundStyle(.secondary)
+                .frame(width: 52, height: 52)
+                .glassEffect(in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Rewind to start")
@@ -66,9 +65,9 @@ struct TransportBarView: View {
     private var playPauseButton: some View {
         Button(action: onTogglePlayback) {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(.primary)
-                .frame(width: 44, height: 44)
+                .frame(width: 64, height: 64)
                 .glassEffect(in: Circle())
         }
         .buttonStyle(.plain)
@@ -80,60 +79,66 @@ struct TransportBarView: View {
             ZStack {
                 Circle()
                     .fill(isRecording ? Color.red : Color.red.opacity(0.15))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 40, height: 40)
                 if isRecording {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(.white)
-                        .frame(width: 12, height: 12)
+                        .frame(width: 16, height: 16)
                 } else {
                     Circle()
                         .fill(Color.red)
-                        .frame(width: 12, height: 12)
+                        .frame(width: 16, height: 16)
                 }
             }
+            .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isRecording ? "Stop recording" : "Start recording")
     }
 
-    private var stemButton: some View {
+    // MARK: - Separate (stem split) button
+    //
+    // Renamed from "Split" — first-time users read "split" as a cut/trim action.
+    // "Separate" matches what the feature actually does (vocals vs. instrumental).
+
+    private var separateButton: some View {
         Group {
             switch stemStatus {
             case .idle:
                 Button(action: onSeparateStems) {
-                    Label("Split", systemImage: "waveform.badge.plus")
-                        .font(.system(size: 12, weight: .semibold))
+                    Label("Separate", systemImage: "waveform.badge.plus")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(DS.Brand.purple1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
                         .glassEffect(in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Separate stems")
+                .accessibilityLabel("Separate vocals from instrumental")
 
             case .running(let p):
-                VStack(spacing: 2) {
+                VStack(spacing: 3) {
                     ProgressView(value: p)
                         .progressViewStyle(.linear)
                         .tint(DS.Brand.purple1)
-                        .frame(width: 56)
-                    Text("Splitting…")
-                        .font(.system(size: 9))
+                        .frame(width: 72)
+                    Text("Separating…")
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
 
             case .done:
-                Label("Split", systemImage: "checkmark")
-                    .font(.system(size: 12, weight: .semibold))
+                Label("Separated", systemImage: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
 
             case .failed:
                 Button(action: onSeparateStems) {
                     Label("Retry", systemImage: "exclamationmark.arrow.circlepath")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.orange)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
                         .glassEffect(in: .capsule)
                 }
                 .buttonStyle(.plain)

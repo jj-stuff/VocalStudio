@@ -40,16 +40,25 @@ final class EditorViewModel {
     @ObservationIgnored private var engineLoaded = false
     @ObservationIgnored private var pollingTask: Task<Void, Never>?
     @ObservationIgnored private var recordingTracks: [Track] = []
+    @ObservationIgnored private let autoStartRecording: Bool
 
     init(
         project: Project,
         store: ProjectStoreInterface,
+        autoStartRecording: Bool = false,
         stemSeparator: StemSeparationService = CoreMLStemSeparator()
     ) {
         self.project = project
         self.store = store
+        self.autoStartRecording = autoStartRecording
         self.stemSeparator = stemSeparator
         self.tracks = Track.buildTracks(from: project)
+        // A fresh EditorViewModel is created every time this project is opened, but
+        // separation already happened in a previous session if stems are persisted —
+        // without this, stemStatus always restarts at .idle and "Separate" reappears,
+        // re-running on project.sourceURL (the original, pre-split file) instead of
+        // being a no-op like it should be.
+        self.stemStatus = project.stems.isEmpty ? .idle : .done
     }
 
     // MARK: - Lifecycle (called from EditorView .task)
@@ -57,6 +66,9 @@ final class EditorViewModel {
     func start() async {
         await loadEngine()
         startPolling()
+        if autoStartRecording {
+            toggleRecording()
+        }
     }
 
     func tearDown() {
@@ -131,6 +143,14 @@ final class EditorViewModel {
         return tracks.first { $0.id == id }
     }
 
+    // MARK: - Volume (every track, regardless of effects-applicability)
+
+    func updateVolume(_ volume: Float) {
+        guard let id = selectedTrackID, let i = tracks.firstIndex(where: { $0.id == id }) else { return }
+        tracks[i].volume = volume
+        engine.setVolume(volume, for: id)
+    }
+
     // MARK: - Effects (apply to selected track)
 
     func updateReverb(_ mix: Float) {
@@ -145,12 +165,50 @@ final class EditorViewModel {
         engine.applyEffects(tracks[i].effects, to: id)
     }
 
-    // MARK: - Clip repositioning (user recording clips only)
+    // MARK: - Clip editing (user recording clips only)
 
     func moveClip(id clipID: UUID, inTrack trackID: UUID, to newOffset: TimeInterval) {
         guard let ti = tracks.firstIndex(where: { $0.id == trackID }),
               let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
         tracks[ti].clips[ci].timelineOffset = max(0, newOffset)
+        engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
+    }
+
+    func trimClip(id clipID: UUID, inTrack trackID: UUID, trimStart: TimeInterval, trimEnd: TimeInterval, timelineOffset: TimeInterval) {
+        guard let ti = tracks.firstIndex(where: { $0.id == trackID }),
+              let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
+        tracks[ti].clips[ci].trimStart = trimStart
+        tracks[ti].clips[ci].trimEnd = trimEnd
+        tracks[ti].clips[ci].timelineOffset = timelineOffset
+        engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
+    }
+
+    /// Deletes a recorded take. If that was the track's only clip, the now-empty
+    /// track is removed too — an empty `.userRecording` row has nothing to show.
+    func deleteClip(id clipID: UUID, inTrack trackID: UUID) {
+        guard let ti = tracks.firstIndex(where: { $0.id == trackID }),
+              let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
+        let deletedURL = tracks[ti].clips[ci].url
+        tracks[ti].clips.remove(at: ci)
+        engine.removeClip(id: clipID, trackID: trackID)
+
+        if tracks[ti].clips.isEmpty {
+            tracks.remove(at: ti)
+            recordingTracks.removeAll { $0.id == trackID }
+            if selectedTrackID == trackID { selectedTrackID = nil }
+        }
+
+        project = project.withRecordings(project.recordings.filter { $0.url != deletedURL })
+        Task { try? await store.save(project) }
+    }
+
+    // MARK: - Project title
+
+    func renameProject(to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != project.title else { return }
+        project = project.withTitle(trimmed)
+        Task { try? await store.save(project) }
     }
 
     // MARK: - Stem separation

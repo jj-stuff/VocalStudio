@@ -40,13 +40,37 @@ enum DS {
 // Defined in Assets.xcassets; accessed via type-safe ColorResource symbols
 // (ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES).
 // Edit the hue in the asset catalog, not here.
+//
+// "Aria" direction (cool twilight): a single analogous purple family, deliberately
+// no separate hue per token — `pink` keeps its name (renaming touches every call
+// site for no behavioral gain) but is now a mid-purple, not magenta.
 
 extension DS {
     enum Brand {
-        static let purple1 = Color(.brandPurple1)
-        static let purple2 = Color(.brandPurple2)
-        static let pink    = Color(.brandPink)
+        static let purple1 = Color(.brandPurple1)  // light lavender — primary accent
+        static let purple2 = Color(.brandPurple2)  // deep purple — gradient end
+        static let pink    = Color(.brandPink)     // mid purple
         static let teal    = Color(.brandTeal)
         static let orange  = Color(.brandOrange)
+    }
+}
+
+// MARK: - Brand typeface
+//
+// Instrument Serif (OFL-licensed, bundled in Resources/Fonts) is the wordmark/
+// display face — used sparingly, the way the brand doc uses it: the "Aria"
+// wordmark itself and a handful of hero headlines. Everything else (body text,
+// controls) stays system font, matching the doc's "Instrument Serif · SF Pro" pairing.
+
+extension DS {
+    enum Font {
+        /// The italic wordmark face — use only for the literal "Aria" logotype.
+        static func wordmark(_ size: CGFloat) -> SwiftUI.Font {
+            .custom("InstrumentSerif-Italic", size: size)
+        }
+        /// Upright serif for hero headlines (e.g. empty-state/import-card copy).
+        static func display(_ size: CGFloat) -> SwiftUI.Font {
+            .custom("InstrumentSerif-Regular", size: size)
+        }
     }
 }

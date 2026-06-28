@@ -63,4 +63,14 @@ struct Project: Identifiable, Codable, Hashable {
         Project(id: id, title: title, sourceURL: sourceURL, createdAt: createdAt,
                 stems: stems, recordings: recordings, effects: effects)
     }
+
+    func withTitle(_ title: String) -> Project {
+        Project(id: id, title: title, sourceURL: sourceURL, createdAt: createdAt,
+                stems: stems, recordings: recordings, effects: effects)
+    }
+
+    func withRecordings(_ recordings: [Recording]) -> Project {
+        Project(id: id, title: title, sourceURL: sourceURL, createdAt: createdAt,
+                stems: stems, recordings: recordings, effects: effects)
+    }
 }

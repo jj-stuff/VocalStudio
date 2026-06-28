@@ -37,7 +37,7 @@ final class ProjectListViewModel {
         defer { isConvertingVideo = false }
         do {
             let localURL = try await (isVideo ? importVideoAsAudio(from: url) : importAudio(from: url))
-            let name = title.isEmpty ? url.deletingPathExtension().lastPathComponent : title
+            let name = title.isEmpty ? CatBreedNamer.randomName(avoiding: projects.map(\.title)) : title
             let project = Project(title: name, sourceURL: localURL)
             try await store.save(project)
             projects.append(project)
@@ -48,19 +48,18 @@ final class ProjectListViewModel {
         }
     }
 
-    func delete(at offsets: IndexSet) async {
-        let targets = offsets.map { projects[$0] }
-        for project in targets {
+    /// Deletes by identity, not index — the view may be showing a filtered
+    /// (e.g. searched) subset, where a raw `List` offset wouldn't line up with
+    /// this VM's full `projects` array.
+    func delete(ids: Set<UUID>) async {
+        for id in ids {
             do {
-                try await store.delete(id: project.id)
+                try await store.delete(id: id)
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
-        // Use sorted().reversed() to avoid index shifting — no SwiftUI import needed.
-        for index in offsets.sorted().reversed() {
-            projects.remove(at: index)
-        }
+        projects.removeAll { ids.contains($0.id) }
     }
 
     // MARK: - Audio import
