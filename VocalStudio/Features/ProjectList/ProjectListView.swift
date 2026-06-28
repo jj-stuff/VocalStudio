@@ -11,8 +11,14 @@ struct ProjectListView: View {
     @State private var isImportingFromPhotos = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var isLoadingPhoto        = false
+    @State private var searchQuery           = ""
 
     private let tabClearance: CGFloat = DS.Size.tabBarH + DS.Spacing.lg
+
+    private var filteredProjects: [Project] {
+        guard !searchQuery.isEmpty else { return viewModel.projects }
+        return viewModel.projects.filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }
+    }
 
     // Hide the tab bar whenever any full-screen overlay is active.
     private var shouldHideTabBar: Bool {
@@ -25,7 +31,7 @@ struct ProjectListView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                titleRow
+                brandRow
                     .padding(.horizontal, DS.Spacing.md + DS.Spacing.xs)
                     .padding(.top, DS.Spacing.sm)
                     .padding(.bottom, DS.Spacing.sm)
@@ -33,16 +39,26 @@ struct ProjectListView: View {
                 if viewModel.projects.isEmpty && !viewModel.isLoading {
                     emptyState
                 } else {
+                    if viewModel.projects.count > 1 {
+                        searchField
+                            .padding(.horizontal, DS.Spacing.md + DS.Spacing.xs)
+                            .padding(.bottom, DS.Spacing.sm)
+                    }
                     projectList
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .zIndex(0)
 
             if !showingImportMenu {
                 fabButton
                     .padding(.trailing, DS.Spacing.md)
                     .padding(.bottom, tabClearance)
                     .transition(.scale(scale: 0.8, anchor: .bottomTrailing).combined(with: .opacity))
+                    // Explicit zIndex above the list — without it, List's own scroll/tap
+                    // gesture recognizers can intermittently win the touch over this
+                    // overlay button despite declaration order, especially mid-scroll.
+                    .zIndex(5)
             }
 
             if showingImportMenu {
@@ -84,32 +100,64 @@ struct ProjectListView: View {
         .task { await viewModel.loadProjects() }
     }
 
-    // MARK: - Title row
+    // MARK: - Brand row
 
-    private var titleRow: some View {
-        HStack(alignment: .bottom) {
-            Text("Projects")
-                .font(.system(size: 34, weight: .bold))
+    private var brandRow: some View {
+        HStack(alignment: .center, spacing: DS.Spacing.sm) {
+            BrandMark(size: 32)
+            Text("Aria")
+                .font(DS.Font.wordmark(30))
                 .foregroundStyle(.primary)
             Spacer()
             if viewModel.isLoading {
                 ProgressView()
                     .controlSize(.small)
-                    .padding(.bottom, DS.Spacing.xxs)
             } else {
                 Text("\(viewModel.projects.count)")
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.tertiary)
-                    .padding(.bottom, DS.Spacing.xxs)
             }
         }
+    }
+
+    // MARK: - Search
+
+    private var searchField: some View {
+        HStack(spacing: DS.Spacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField("Search your projects", text: $searchQuery)
+                .font(.system(size: 15))
+                .autocorrectionDisabled()
+            if !searchQuery.isEmpty {
+                Button { searchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.vertical, DS.Spacing.sm)
+        .glassEffect(in: .capsule)
     }
 
     // MARK: - Project list
 
     private var projectList: some View {
         List {
-            ForEach(viewModel.projects) { project in
+            if filteredProjects.isEmpty {
+                Text("No projects match “\(searchQuery)”")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, DS.Spacing.xxl)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(filteredProjects) { project in
                 Button { onSelectProject(project) } label: {
                     ProjectCard(project: project)
                 }
@@ -123,7 +171,10 @@ struct ProjectListView: View {
                     trailing: DS.Spacing.md
                 ))
             }
-            .onDelete { offsets in Task { await viewModel.delete(at: offsets) } }
+            .onDelete { offsets in
+                let ids = Set(offsets.map { filteredProjects[$0].id })
+                Task { await viewModel.delete(ids: ids) }
+            }
 
             Color.clear
                 .frame(height: tabClearance + DS.Size.fab)
@@ -182,15 +233,24 @@ struct ProjectListView: View {
     // MARK: - FAB
 
     private var fabButton: some View {
-        Button { withAnimation(DS.Animation.spring) { showingImportMenu = true } } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(DS.Brand.purple1)
-                .frame(width: DS.Size.fab, height: DS.Size.fab)
-                .glassEffect(in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Import track")
+        Image(systemName: "plus")
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(DS.Brand.purple1)
+            .frame(width: DS.Size.fab, height: DS.Size.fab)
+            .glassEffect(in: Circle())
+            .contentShape(Circle())
+            // highPriorityGesture, not a Button — the FAB overlaps the List underneath
+            // it (in the bottomTrailing ZStack corner), and the List's own UIKit-backed
+            // scroll/row gesture recognizers intermittently won the touch over a plain
+            // Button despite zIndex, which only orders SwiftUI's own hit-testing, not
+            // UIKit's responder chain. This forces the tap to win outright.
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    withAnimation(DS.Animation.spring) { showingImportMenu = true }
+                }
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Import track")
     }
 
     // MARK: - Import overlay

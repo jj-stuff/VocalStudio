@@ -2,19 +2,16 @@ import SwiftUI
 
 enum AppTab: String, CaseIterable {
     case projects = "Projects"
-    case studio   = "Studio"
-    case explore  = "Explore"
     case settings = "Settings"
 
     var icon: String {
         switch self {
         case .projects: "music.note.list"
-        case .studio:   "mic.fill"
-        case .explore:  "sparkles"
         case .settings: "gearshape.fill"
         }
     }
 
+    // Display logic lives on the model, not in the view body.
     func iconWeight(isSelected: Bool) -> Font.Weight { isSelected ? .semibold : .regular }
     func itemColor(isSelected: Bool) -> Color {
         isSelected ? DS.Brand.purple1 : Color(.secondaryLabel)
@@ -24,22 +21,31 @@ enum AppTab: String, CaseIterable {
 struct CustomTabBar: View {
     @Binding var selectedTab: AppTab
     var namespace: Namespace.ID
+    let onInstantRecord: () -> Void
+
+    private static let donutSize: CGFloat = DS.Size.tabBarH + 12
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                tabItem(tab)
+        ZStack {
+            HStack(spacing: 0) {
+                tabItem(.projects)
+                // Reserves the center column so the two real tabs don't crowd the donut.
+                Color.clear.frame(width: Self.donutSize - DS.Spacing.md)
+                tabItem(.settings)
             }
+            // Explicit height (not .fixedSize) — pins the bar so the matchedGeometryEffect
+            // pill's spring transition between tabs can never read back into the ancestor's
+            // ideal-size and visibly resize the whole bar mid-animation.
+            .frame(height: DS.Size.tabBarH)
+            .padding(.horizontal, DS.Spacing.xxs)
+            .padding(.vertical, DS.Spacing.xxs)
+            .glassEffect(in: .capsule)
+            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
+
+            instantRecordButton
+                .offset(y: -10)
         }
-        // Explicit height (not .fixedSize) — pins the bar so the matchedGeometryEffect
-        // pill's spring transition between tabs can never read back into the ancestor's
-        // ideal-size and visibly resize the whole bar mid-animation.
-        .frame(height: DS.Size.tabBarH)
-        .padding(.horizontal, DS.Spacing.xxs)
-        .padding(.vertical, DS.Spacing.xxs)
-        .glassEffect(in: .capsule)
-        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
         .padding(.horizontal, DS.Spacing.xl)
         .padding(.bottom, DS.Spacing.xl)
     }
@@ -70,6 +76,10 @@ struct CustomTabBar: View {
                 if isSelected {
                     Capsule()
                         .fill(DS.Brand.purple1.opacity(0.22))
+                        // Horizontal inset matches the vertical padding above so the pill
+                        // doesn't touch the column edges — without it, edge tabs (first/
+                        // last) read as having far less side-margin than top/bottom.
+                        .padding(.horizontal, DS.Spacing.xs)
                         .matchedGeometryEffect(id: "tabPill", in: namespace)
                 }
             }
@@ -79,5 +89,34 @@ struct CustomTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.rawValue)
+    }
+
+    // MARK: - Instant record (donut)
+    //
+    // Not a tab — doesn't touch `selectedTab`. A circle with a punched-out center,
+    // centered on the bar and slightly taller than it, that immediately creates a
+    // project and starts recording (see MainTabView.startInstantRecord).
+
+    private var instantRecordButton: some View {
+        Button(action: onInstantRecord) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [DS.Brand.pink, DS.Brand.purple1],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                Circle()
+                    .fill(Color(.systemBackground))
+                    .frame(width: Self.donutSize * 0.42, height: Self.donutSize * 0.42)
+            }
+            .frame(width: Self.donutSize, height: Self.donutSize)
+            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+            .shadow(color: DS.Brand.purple1.opacity(0.4), radius: 16, y: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Record now")
+        .accessibilityHint("Starts a new project and begins recording immediately")
     }
 }

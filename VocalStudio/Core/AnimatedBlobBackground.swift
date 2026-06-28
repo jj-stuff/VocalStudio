@@ -35,9 +35,10 @@ struct AnimatedBlobBackground: View {
             )
             .offset(x: 100, y: -40)
 
-            // Blob 3 — blue accent
+            // Blob 3 — deepest purple (keeps the trio a single analogous family,
+            // no stray hue, matching the Aria palette's "no neon" rule)
             blob(
-                color: Color(red: 0.22, green: 0.60, blue: 1.0),
+                color: Color(red: 0.353, green: 0.290, blue: 0.549),
                 size: 280,
                 offset: blob3Offset,
                 scale: blob3Scale,

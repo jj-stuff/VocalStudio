@@ -1,7 +1,8 @@
 import AVFoundation
 import Observation
+import QuartzCore
 
-// MARK: - Internal types
+// MARK: - Internal Engine Types
 
 private struct LoadedClip {
     let trackID: UUID
@@ -16,108 +17,110 @@ private struct EffectsChain {
     let reverb: AVAudioUnitReverb
 }
 
-// MARK: - Engine
+// MARK: - MultiTrackEngine Implementation
 
-/// Multi-track AVAudioEngine wrapper.
-///
-/// Signal path per effects-bearing track:  player → equalizer → reverb → mainMixerNode
-/// Signal path per instrumental track:     player → mainMixerNode
-///
-/// All player nodes start at the same AVAudioTime so playback is sample-accurate.
-/// Important: never pass nil to engine.connect — always supply the file's processingFormat.
 @Observable
 final class MultiTrackEngine {
 
-    // MARK: - Public state
+    // MARK: - Public State
 
     private(set) var isPlaying = false
     private(set) var isRecording = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
 
-    // MARK: - Private audio graph
+    // MARK: - Private Audio Graph
 
-    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private let engine: AVAudioEngine
     @ObservationIgnored private var loadedClips: [LoadedClip] = []
     @ObservationIgnored private var effectsChains: [UUID: EffectsChain] = [:]
     @ObservationIgnored private var mutedTrackIDs: Set<UUID> = []
 
-    // Wall-clock anchor set when play() is called, used to compute currentTime cheaply
+    // Timekeeping properties
     @ObservationIgnored private var playAnchorWall: CFTimeInterval = 0
     @ObservationIgnored private var playAnchorTimeline: TimeInterval = 0
+    @ObservationIgnored private var recordAnchorWall: CFTimeInterval = 0
+    @ObservationIgnored private var recordAnchorTimeline: TimeInterval = 0
     @ObservationIgnored private var pollingTask: Task<Void, Never>?
 
-    // Recording state
-    @ObservationIgnored private var recordingFile: AVAudioFile?
+    // Recording State
+    //
+    // Deliberately NOT engine.inputNode.installTap. Across multiple real-device test
+    // rounds, engine.inputNode.outputFormat(forBus:) reported sampleRate 0 forever —
+    // even with a fully correct, verified session/route (category, options, permission,
+    // currentRoute.inputs all confirmed valid via diagnostics) — and even after polling
+    // for a full second and a full stop/restart. AVAudioRecorder is Apple's dedicated
+    // "record the mic to a file" API: it negotiates the hardware format internally and
+    // never requires the caller to read inputNode's format at all, which sidesteps the
+    // entire problem rather than working around it. We never routed the live mic signal
+    // through the effects graph for monitoring anyway (the tap only wrote raw buffers to
+    // disk), so this drops in with no functional loss.
+    @ObservationIgnored private var audioRecorder: AVAudioRecorder?
     @ObservationIgnored private var recordingURL: URL?
     @ObservationIgnored private var recordingTimelineOffset: TimeInterval = 0
+    // `isRecording` only flips true at the very end of startRecording — everything
+    // before that (permission, session config) is `await`-suspendable, so a second call
+    // (e.g. a double tap) can slip past `guard !isRecording` while the first is still
+    // mid-setup. This flag is set synchronously before any `await`, so a second call can
+    // never get past the guard.
+    @ObservationIgnored private var isStartingRecording = false
 
-    // MARK: - Load
+    // MARK: - Initialization Lifecycle
 
-    /// Open every clip audio file, wire up the AVAudioEngine graph, and start it.
-    /// Returns the same tracks with `AudioClip.duration` populated from the actual files.
+    /// Deliberately does no AVFoundation work. `EditorViewModel` constructs this as a
+    /// stored property, so anything heavy or session-touching here would run as a side
+    /// effect of SwiftUI evaluating a view's `@State` — before microphone permission has
+    /// even been requested, and possibly more than once. Session configuration and engine
+    /// start happen lazily in `loadTracks`/`startRecording`, right before they're needed.
+    init() {
+        self.engine = AVAudioEngine()
+    }
+
+    // MARK: - Track Loading Engine Graph
+
     func loadTracks(_ tracks: [Track]) async throws -> [Track] {
         tearDown()
-
-        // Configure the session before touching the engine at all. The input node can
-        // latch a zero/invalid format for the rest of the process if engine.start() ever
-        // runs before the session is .playAndRecord — this is the root cause behind
-        // "could not read the microphone input format" needing an app restart to clear.
         try configureAudioSession()
 
         var updatedTracks = tracks
         var projectDuration: TimeInterval = 0
 
         for (trackIndex, track) in tracks.enumerated() {
-            // Tracks the first clip that successfully wired the chain → mainMixer,
-            // because eq→reverb→mainMixer must only be connected once per effects chain.
             var effectsChainWiredToOutput = false
 
             for (clipIndex, clip) in track.clips.enumerated() {
-
-                // 1. Open the audio file
                 guard let audioFile = try? AVAudioFile(forReading: clip.url) else { continue }
                 let audioFormat = audioFile.processingFormat
-
-                // Guard against /dev/null or otherwise empty/corrupt files
+                
                 guard audioFormat.sampleRate > 0, audioFormat.channelCount > 0 else { continue }
 
                 let fileDuration = Double(audioFile.length) / audioFormat.sampleRate
                 guard fileDuration > 0 else { continue }
 
-                // 2. Attach a dedicated player node for this clip
                 let playerNode = AVAudioPlayerNode()
+                playerNode.volume = track.volume
                 engine.attach(playerNode)
 
-                // 3. Wire the player into the graph
                 if track.effectsApplicable {
-                    // Create the effects chain lazily on the first valid clip for this track
                     if effectsChains[track.id] == nil {
                         let chain = makeEffectsChain()
                         effectsChains[track.id] = chain
                         engine.attach(chain.equalizer)
                         engine.attach(chain.reverb)
-                        // Do NOT connect equalizer→reverb→mainMixer here yet.
-                        // The playerNode must be connected to the equalizer first so that
-                        // AVAudioEngine can infer a valid format through the chain.
                     }
                     let chain = effectsChains[track.id]!
 
-                    // player → equalizer (explicit format from the source file)
                     engine.connect(playerNode, to: chain.equalizer, format: audioFormat)
 
-                    // equalizer → reverb → mainMixer (same explicit format, done once per chain)
                     if !effectsChainWiredToOutput {
-                        engine.connect(chain.equalizer, to: chain.reverb,         format: audioFormat)
-                        engine.connect(chain.reverb,    to: engine.mainMixerNode, format: audioFormat)
+                        engine.connect(chain.equalizer, to: chain.reverb, format: audioFormat)
+                        engine.connect(chain.reverb, to: engine.mainMixerNode, format: audioFormat)
                         effectsChainWiredToOutput = true
                     }
                 } else {
-                    // Instrumental / source track — no effects processing
                     engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
                 }
 
-                // 4. Store updated clip with real duration
                 var updatedClip = clip
                 updatedClip.duration = fileDuration
                 updatedTracks[trackIndex].clips[clipIndex] = updatedClip
@@ -141,16 +144,21 @@ final class MultiTrackEngine {
 
         duration = projectDuration
 
-        // Start the engine even if no clip loaded (e.g. an empty project) — recording
-        // must still work, and the session is already configured above.
+        // Touching mainMixerNode forces AVAudioEngine to lazily create its I/O nodes.
+        // Skipping this and calling start() on a graph that has never had a node
+        // touched (e.g. an empty project where every clip failed to load) crashes
+        // natively with "inputNode != nullptr || outputNode != nullptr" instead of
+        // throwing a catchable Swift error — this isn't optional.
+        _ = engine.mainMixerNode
         try engine.start()
         return updatedTracks
     }
 
-    // MARK: - Transport
+    // MARK: - Transport Control API
 
     func play(from time: TimeInterval) throws {
         guard !loadedClips.isEmpty else { return }
+        
         if !engine.isRunning { try engine.start() }
 
         let startTime = avAudioTime(secondsFromNow: 0.02)
@@ -187,8 +195,6 @@ final class MultiTrackEngine {
         if wasPlaying { try? play(from: currentTime) }
     }
 
-    // MARK: - Per-track control
-
     func setMuted(_ muted: Bool, for trackID: UUID) {
         if muted {
             mutedTrackIDs.insert(trackID)
@@ -210,110 +216,116 @@ final class MultiTrackEngine {
         applySettingsToChain(chain, settings: settings)
     }
 
-    // MARK: - Recording
+    func setVolume(_ volume: Float, for trackID: UUID) {
+        for loadedClip in loadedClips where loadedClip.trackID == trackID {
+            loadedClip.player.volume = volume
+        }
+    }
 
-    /// Request microphone permission then start capturing to a temp file.
+    /// Syncs a moved/trimmed clip's data into the engine's own loaded-clip copy.
+    /// Without this, moving or trimming a clip changes only what's drawn — the engine
+    /// schedules playback from the copy it made back in `loadTracks`, which never
+    /// otherwise hears about edits made afterward.
+    func updateClip(_ clip: AudioClip, trackID: UUID) {
+        guard let index = loadedClips.firstIndex(where: { $0.clip.id == clip.id && $0.trackID == trackID }) else { return }
+        loadedClips[index].clip = clip
+        duration = max(duration, clip.timelineEnd)
+    }
+
+    /// Removes a clip's player node from the graph entirely (deleting a recording).
+    func removeClip(id clipID: UUID, trackID: UUID) {
+        guard let index = loadedClips.firstIndex(where: { $0.clip.id == clipID && $0.trackID == trackID }) else { return }
+        let loadedClip = loadedClips.remove(at: index)
+        loadedClip.player.stop()
+        engine.detach(loadedClip.player)
+    }
+
+    // MARK: - Recording Pipeline
+
     func startRecording(at timelineOffset: TimeInterval) async throws {
-        guard !isRecording else { return }
+        guard !isRecording, !isStartingRecording else { return }
+        isStartingRecording = true
+        defer { isStartingRecording = false }
 
-        print("[Engine] startRecording: requesting microphone permission")
         let granted = await AVAudioApplication.requestRecordPermission()
-        print("[Engine] startRecording: granted = \(granted)")
-        guard granted else {
-            throw AudioEngineError.microphonePermissionDenied
-        }
+        guard granted else { throw AudioEngineError.microphonePermissionDenied }
 
-        // Idempotent — don't assume loadTracks already configured the session
-        // (an empty/source-less project still needs to be able to record).
+        // Idempotent — startRecording must work even if loadTracks never ran (e.g. an
+        // instant-record flow that starts recording before any playback is loaded).
         try configureAudioSession()
-        let audioSession = AVAudioSession.sharedInstance()
-        print("[Engine] startRecording: session category = \(audioSession.category.rawValue), options = \(audioSession.categoryOptions.rawValue)")
-        print("[Engine] startRecording: engine.isRunning = \(engine.isRunning)")
 
-        if !engine.isRunning {
-            print("[Engine] startRecording: engine was stopped — starting now")
-            try engine.start()
-        }
+        let recordingsDir = URL.documentsDirectory.appending(path: "Recordings", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
+        let outputURL = recordingsDir.appendingPathComponent(UUID().uuidString + ".m4a")
 
-        var hardwareFormat = engine.inputNode.inputFormat(forBus: 0)
-        print("[Engine] startRecording: inputFormat sampleRate=\(hardwareFormat.sampleRate) channels=\(hardwareFormat.channelCount)")
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
 
-        if hardwareFormat.sampleRate <= 0 || hardwareFormat.channelCount == 0 {
-            // The input node can latch an invalid format if it was ever created before
-            // the session went .playAndRecord. Recover the way restarting the app used
-            // to: fully stop and restart the engine under the now-correct session, then
-            // re-read the format once before giving up.
-            print("[Engine] startRecording: input format invalid — restarting engine to recover")
-            engine.stop()
-            try configureAudioSession()
-            try engine.start()
-            hardwareFormat = engine.inputNode.inputFormat(forBus: 0)
-            print("[Engine] startRecording: post-recovery inputFormat sampleRate=\(hardwareFormat.sampleRate) channels=\(hardwareFormat.channelCount)")
-        }
+        let recorder = try AVAudioRecorder(url: outputURL, settings: settings)
 
-        guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
-            print("[Engine] startRecording: ERROR — input format still zero after recovery attempt")
+        // Recording into nothing isn't how a timeline works — start the backing
+        // track (if there is one) at the same moment, the same way tapping Play
+        // does, rather than only ever capturing into silence.
+        if !isPlaying { try? play(from: timelineOffset) }
+
+        // AVAudioRecorder and AVAudioEngine are separate Core Audio clients with
+        // independent clocks — there is no API that starts them at a provably
+        // identical instant (confirmed: this is a known, unsolved limitation per
+        // Apple's own developer forums, not something fixable by trying harder
+        // here). Best available mitigation: schedule the recorder's start on ITS
+        // own hardware clock (deviceCurrentTime) with the same lookahead `play`
+        // just used for the player nodes, so both are told to start relative to
+        // "now + 20ms" instead of one starting immediately and the other lagging
+        // behind by an unpredictable, uncoordinated amount.
+        let lookahead = 0.02
+        guard recorder.record(atTime: recorder.deviceCurrentTime + lookahead) else {
             throw AudioEngineError.microphoneFormatUnavailable
         }
 
-        // Persist recordings in Documents so they survive app restarts
-        let recordingsDir = URL.documentsDirectory.appending(path: "Recordings", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
-        let outputURL = recordingsDir.appendingPathComponent(UUID().uuidString + ".caf")
-        print("[Engine] startRecording: output → \(outputURL.lastPathComponent)")
-
+        audioRecorder = recorder
         recordingURL = outputURL
-        recordingTimelineOffset = timelineOffset
-
-        // Pass nil format so the engine delivers buffers in its native hardware format.
-        // The output file is created lazily on the first buffer so its format is guaranteed
-        // to match the buffers we receive — no format mismatch possible.
-        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
-            guard let self else { return }
-            if self.recordingFile == nil {
-                self.recordingFile = try? AVAudioFile(
-                    forWriting: outputURL,
-                    settings: buffer.format.settings
-                )
-                print("[Engine] recording: file created with format \(buffer.format)")
-            }
-            try? self.recordingFile?.write(from: buffer)
-        }
-
-        print("[Engine] startRecording: tap installed, recording started")
+        // Correct for the hardware's own capture latency (the gap between a sample
+        // arriving at the mic and it actually showing up in the recorded file) so
+        // the clip lands closer to where it was actually sung relative to the
+        // backing track, not just where the playhead was when record() was called.
+        recordingTimelineOffset = timelineOffset + AVAudioSession.sharedInstance().inputLatency
+        recordAnchorWall = CACurrentMediaTime()
+        recordAnchorTimeline = timelineOffset
         isRecording = true
+        startPolling()   // advances currentTime in real time even with no playback running
     }
 
     func finishRecording() throws -> AudioClip? {
-        guard isRecording else { return nil }
-        engine.inputNode.removeTap(onBus: 0)
-
-        guard let url = recordingURL, let file = recordingFile else {
+        guard isRecording, let recorder = audioRecorder, let url = recordingURL else {
             isRecording = false
             return nil
         }
-
-        let fileDuration = Double(file.length) / file.processingFormat.sampleRate
-        let clip = AudioClip(
-            url: url,
-            timelineOffset: recordingTimelineOffset,
-            duration: fileDuration
-        )
-
-        recordingFile = nil
-        recordingURL = nil
+        recorder.stop()
+        audioRecorder = nil
         isRecording = false
 
+        // Re-derive duration from the written file rather than recorder.currentTime —
+        // consistent with how every other clip's duration is read in this engine.
+        let fileDuration = (try? AVAudioFile(forReading: url)).map {
+            Double($0.length) / $0.processingFormat.sampleRate
+        } ?? 0
+        let clip = AudioClip(url: url, timelineOffset: recordingTimelineOffset, duration: fileDuration)
+        recordingURL = nil
         return clip
     }
 
-    // MARK: - Teardown
+    // MARK: - Resource Cleanup
 
     func tearDown() {
         stopPolling()
 
         if isRecording {
-            engine.inputNode.removeTap(onBus: 0)
+            audioRecorder?.stop()
+            audioRecorder = nil
             isRecording = false
         }
 
@@ -336,33 +348,29 @@ final class MultiTrackEngine {
         duration = 0
     }
 
-    // MARK: - Private — clip scheduling
+    // MARK: - Private Time Keeping & Logic Utilities
 
-    /// Schedule one clip's audio against the shared playback anchor time.
-    private func scheduleClip(
-        _ loadedClip: LoadedClip,
-        currentTime: TimeInterval,
-        playAnchor: AVAudioTime
-    ) {
+    private func scheduleClip(_ loadedClip: LoadedClip, currentTime: TimeInterval, playAnchor: AVAudioTime) {
         loadedClip.player.stop()
-
         guard loadedClip.clip.timelineEnd > currentTime else { return }
 
         let fileReadStartSeconds: TimeInterval
         let playerStartDelaySeconds: TimeInterval
 
         if loadedClip.clip.timelineOffset <= currentTime {
-            // Playhead is already inside this clip — seek into the file
             fileReadStartSeconds = loadedClip.clip.trimStart + (currentTime - loadedClip.clip.timelineOffset)
             playerStartDelaySeconds = 0
         } else {
-            // Clip starts in the future — read from its trim point, delay the player start
             fileReadStartSeconds = loadedClip.clip.trimStart
             playerStartDelaySeconds = loadedClip.clip.timelineOffset - currentTime
         }
 
         let startFrame = AVAudioFramePosition(fileReadStartSeconds * loadedClip.sampleRate)
-        let remainingFrames = AVAudioFrameCount(max(0, loadedClip.file.length - startFrame))
+        // Stop at the trimmed tail, not the physical end of the file.
+        let trimmedEndSeconds = loadedClip.clip.duration - loadedClip.clip.trimEnd
+        let endFrame = AVAudioFramePosition(trimmedEndSeconds * loadedClip.sampleRate)
+        let availableFrames = min(loadedClip.file.length, endFrame) - startFrame
+        let remainingFrames = AVAudioFrameCount(max(0, availableFrames))
         guard remainingFrames > 0 else { return }
 
         loadedClip.player.scheduleSegment(
@@ -379,12 +387,18 @@ final class MultiTrackEngine {
         }
     }
 
-    // MARK: - Private — clock
-
     private func syncCurrentTime() {
-        guard isPlaying else { return }
-        let elapsed = CACurrentMediaTime() - playAnchorWall
-        currentTime = min(playAnchorTimeline + max(0, elapsed), duration)
+        if isPlaying {
+            let elapsed = CACurrentMediaTime() - playAnchorWall
+            currentTime = min(playAnchorTimeline + max(0, elapsed), duration)
+        } else if isRecording {
+            // No playback clock to follow while recording solo (e.g. instant-record with
+            // no backing track) — advance from wall-clock instead, so the playhead still
+            // visibly moves. Let duration grow with it so the ruler/scroll width keeps up.
+            let elapsed = CACurrentMediaTime() - recordAnchorWall
+            currentTime = recordAnchorTimeline + max(0, elapsed)
+            duration = max(duration, currentTime)
+        }
     }
 
     private func startPolling() {
@@ -395,8 +409,8 @@ final class MultiTrackEngine {
                 self.syncCurrentTime()
                 if self.isPlaying, self.duration > 0, self.currentTime >= self.duration {
                     self.isPlaying = false
-                    break
                 }
+                if !self.isPlaying && !self.isRecording { break }
                 try? await Task.sleep(for: .milliseconds(33))
             }
         }
@@ -407,23 +421,18 @@ final class MultiTrackEngine {
         pollingTask = nil
     }
 
-    // MARK: - Private — graph helpers
-
     private func makeEffectsChain() -> EffectsChain {
         let equalizer = AVAudioUnitEQ(numberOfBands: 4)
-        let frequencies: [Float] = [80, 500, 2000, 8000]
-        for (index, frequency) in frequencies.enumerated() {
+        for index in 0..<4 {
             equalizer.bands[index].filterType = .parametric
-            equalizer.bands[index].frequency = frequency
+            equalizer.bands[index].frequency = [80.0, 500.0, 2000.0, 8000.0][index]
             equalizer.bands[index].bandwidth = 1.0
             equalizer.bands[index].gain = 0
             equalizer.bands[index].bypass = false
         }
-
         let reverb = AVAudioUnitReverb()
         reverb.loadFactoryPreset(.mediumRoom)
         reverb.wetDryMix = 15
-
         return EffectsChain(equalizer: equalizer, reverb: reverb)
     }
 
@@ -436,20 +445,16 @@ final class MultiTrackEngine {
 
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
-        // Always playAndRecord so the input node is ready from engine start.
-        // .defaultToSpeaker routes audio to the speaker instead of the earpiece.
-        // .allowBluetooth allows AirPods and other BT devices for both mic and playback.
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true)
     }
 
-    /// Convert a future delay in seconds into an AVAudioTime.
     private func avAudioTime(secondsFromNow delay: TimeInterval) -> AVAudioTime {
         AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: delay))
     }
 }
 
-// MARK: - Errors
+// MARK: - Error Handling Architecture
 
 enum AudioEngineError: LocalizedError {
     case microphonePermissionDenied
@@ -458,9 +463,9 @@ enum AudioEngineError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .microphonePermissionDenied:
-            return "Microphone access was denied. Go to Settings → Vocal Studio and enable Microphone."
+            return "Microphone access was denied. Go to Settings and enable Microphone access."
         case .microphoneFormatUnavailable:
-            return "No microphone input is available right now. On the Simulator, check that an input device is selected in your Mac's Sound settings; on a device, try reopening the project."
+            return "Could not start the microphone. Check that no other app is using it, then try again."
         }
     }
 }
