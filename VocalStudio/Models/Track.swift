@@ -43,7 +43,14 @@ struct Track: Identifiable {
 
     /// Builds the initial track list from a project.
     /// Durations are zero until the audio engine loads them.
-    static func buildTracks(from project: Project, existingRecordingTracks: [Track] = []) -> [Track] {
+    ///
+    /// `existingRecordingTracks`: pass the in-memory list when rebuilding within an
+    /// already-open editor session (e.g. after adding a take or separating stems) —
+    /// that's the freshest source. Pass `nil` (the default) for a freshly-opened
+    /// editor with no in-memory state yet; recording tracks are then reconstructed
+    /// from `project.recordings` instead, which is the only place they survive
+    /// between sessions.
+    static func buildTracks(from project: Project, existingRecordingTracks: [Track]? = nil) -> [Track] {
         var tracks: [Track] = []
 
         if project.stems.isEmpty {
@@ -69,8 +76,24 @@ struct Track: Identifiable {
             }
         }
 
-        // Re-attach any existing recording takes
-        tracks.append(contentsOf: existingRecordingTracks)
+        if let existingRecordingTracks {
+            tracks.append(contentsOf: existingRecordingTracks)
+        } else {
+            for (index, recording) in project.recordings.enumerated() {
+                let clip = AudioClip(
+                    url: recording.url,
+                    timelineOffset: recording.timelineOffset,
+                    trimStart: recording.trimStart,
+                    trimEnd: recording.trimEnd
+                )
+                tracks.append(Track(
+                    id: UUID(),
+                    name: "Take \(index + 1)",
+                    kind: .userRecording(index: index),
+                    clips: [clip]
+                ))
+            }
+        }
 
         return tracks
     }

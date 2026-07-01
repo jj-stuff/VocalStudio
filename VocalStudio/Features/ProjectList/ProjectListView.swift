@@ -12,6 +12,7 @@ struct ProjectListView: View {
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var isLoadingPhoto        = false
     @State private var searchQuery           = ""
+    @FocusState private var isSearchFocused: Bool
 
     private let tabClearance: CGFloat = DS.Size.tabBarH + DS.Spacing.lg
 
@@ -49,6 +50,12 @@ struct ProjectListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .zIndex(0)
+            // Tap anywhere — brand row, empty space, or the list itself — to drop
+            // search focus. simultaneousGesture so it doesn't steal taps meant for
+            // row buttons or the search field's own clear button.
+            .simultaneousGesture(
+                TapGesture().onEnded { isSearchFocused = false }
+            )
 
             if !showingImportMenu {
                 fabButton
@@ -130,6 +137,7 @@ struct ProjectListView: View {
             TextField("Search your projects", text: $searchQuery)
                 .font(.system(size: 15))
                 .autocorrectionDisabled()
+                .focused($isSearchFocused)
             if !searchQuery.isEmpty {
                 Button { searchQuery = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -184,6 +192,7 @@ struct ProjectListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.immediately)
     }
 
     // MARK: - Empty state

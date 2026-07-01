@@ -53,6 +53,11 @@ final class EditorViewModel {
         self.autoStartRecording = autoStartRecording
         self.stemSeparator = stemSeparator
         self.tracks = Track.buildTracks(from: project)
+        // Seed in-memory tracking with whatever buildTracks just reconstructed from
+        // project.recordings, so a later in-session rebuild (a new take, a stem
+        // separation) keeps these instead of only ever keeping takes recorded
+        // after this launch.
+        self.recordingTracks = self.tracks.filter { $0.kind.isUserRecording }
         // A fresh EditorViewModel is created every time this project is opened, but
         // separation already happened in a previous session if stems are persisted —
         // without this, stemStatus always restarts at .idle and "Separate" reappears,
@@ -172,6 +177,7 @@ final class EditorViewModel {
               let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
         tracks[ti].clips[ci].timelineOffset = max(0, newOffset)
         engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
+        persistRecordingMetadata(for: tracks[ti].clips[ci])
     }
 
     func trimClip(id clipID: UUID, inTrack trackID: UUID, trimStart: TimeInterval, trimEnd: TimeInterval, timelineOffset: TimeInterval) {
@@ -181,6 +187,21 @@ final class EditorViewModel {
         tracks[ti].clips[ci].trimEnd = trimEnd
         tracks[ti].clips[ci].timelineOffset = timelineOffset
         engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
+        persistRecordingMetadata(for: tracks[ti].clips[ci])
+    }
+
+    /// Keeps the persisted `Recording` entry for a `.userRecording` clip in sync
+    /// with its current position/trim, so a move or trim survives reopening the
+    /// project — without this, edits only ever lived in the in-memory `tracks`
+    /// array and silently reverted on the next fresh launch.
+    private func persistRecordingMetadata(for clip: AudioClip) {
+        guard let index = project.recordings.firstIndex(where: { $0.url == clip.url }) else { return }
+        var recordings = project.recordings
+        recordings[index].timelineOffset = clip.timelineOffset
+        recordings[index].trimStart = clip.trimStart
+        recordings[index].trimEnd = clip.trimEnd
+        project = project.withRecordings(recordings)
+        Task { try? await store.save(project) }
     }
 
     /// Deletes a recorded take. If that was the track's only clip, the now-empty
@@ -277,8 +298,14 @@ final class EditorViewModel {
         tracks.append(newTrack)
         recordingTracks.append(newTrack)
 
-        // Persist the recording URL in the project so it survives app restarts
-        let recording = Recording(url: clip.url)
+        // Persist the full clip position (not just the URL) so it survives app
+        // restarts and reopening the project — see Track.buildTracks.
+        let recording = Recording(
+            url: clip.url,
+            timelineOffset: clip.timelineOffset,
+            trimStart: clip.trimStart,
+            trimEnd: clip.trimEnd
+        )
         project = project.withRecording(recording)
         Task { try? await store.save(project) }
 
