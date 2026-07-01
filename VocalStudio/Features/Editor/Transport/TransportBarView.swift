@@ -106,12 +106,21 @@ struct TransportBarView: View {
             switch stemStatus {
             case .idle:
                 Button(action: onSeparateStems) {
-                    Label("Separate", systemImage: "waveform.badge.plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DS.Brand.purple1)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .glassEffect(in: .capsule)
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform.badge.plus")
+                            .font(.system(size: 16))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Separate")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Vocals / Instrumental")
+                                .font(.system(size: 10, weight: .medium))
+                                .opacity(0.7)
+                        }
+                    }
+                    .foregroundStyle(DS.Brand.purple1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(in: .capsule)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Separate vocals from instrumental")

@@ -13,7 +13,6 @@ struct MainTabView: View {
     let store: ProjectStoreInterface
 
     @State private var selectedTab: AppTab = .projects
-    @Namespace private var tabNamespace
     @State private var tabBarHidden = false
     @State private var instantRecordProject: Project?
 
@@ -26,7 +25,7 @@ struct MainTabView: View {
                 .onPreferenceChange(TabBarHiddenKey.self) { tabBarHidden = $0 }
 
             if !tabBarHidden {
-                CustomTabBar(selectedTab: $selectedTab, namespace: tabNamespace, onInstantRecord: startInstantRecord)
+                CustomTabBar(selectedTab: $selectedTab, onInstantRecord: startInstantRecord)
                     .ignoresSafeArea(.keyboard)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -43,7 +42,7 @@ struct MainTabView: View {
         case .projects:
             ProjectsTab(store: store, instantRecordProject: $instantRecordProject)
         case .settings:
-            PlaceholderTab(icon: "gearshape.fill", title: "Settings", subtitle: "App preferences and account.")
+            SettingsView(viewModel: SettingsViewModel(store: store))
         }
     }
 
@@ -103,34 +102,6 @@ private struct ProjectsTab: View {
         switch dest {
         case .editor(let project, let autoRecord):
             EditorView(viewModel: EditorViewModel(project: project, store: store, autoStartRecording: autoRecord))
-        }
-    }
-}
-
-// MARK: - Placeholder tab
-
-private struct PlaceholderTab: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        ZStack {
-            Color(.systemBackground).ignoresSafeArea()
-
-            VStack(spacing: DS.Spacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(DS.Brand.purple1)
-                Text(title)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(DS.Spacing.xl)
         }
     }
 }

@@ -20,7 +20,6 @@ enum AppTab: String, CaseIterable {
 
 struct CustomTabBar: View {
     @Binding var selectedTab: AppTab
-    var namespace: Namespace.ID
     let onInstantRecord: () -> Void
 
     private static let donutSize: CGFloat = DS.Size.tabBarH + 12
@@ -72,17 +71,6 @@ struct CustomTabBar: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, DS.Spacing.xs)
-            .background {
-                if isSelected {
-                    Capsule()
-                        .fill(DS.Brand.purple1.opacity(0.22))
-                        // Horizontal inset matches the vertical padding above so the pill
-                        // doesn't touch the column edges — without it, edge tabs (first/
-                        // last) read as having far less side-margin than top/bottom.
-                        .padding(.horizontal, DS.Spacing.xs)
-                        .matchedGeometryEffect(id: "tabPill", in: namespace)
-                }
-            }
             // Make the full content area (icon + label + all padding) tappable,
             // not just the tight bounding rect of the text/image glyphs.
             .contentShape(Rectangle())
