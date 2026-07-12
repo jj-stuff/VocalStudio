@@ -4,6 +4,20 @@ struct SettingsView: View {
     @State var viewModel: SettingsViewModel
     @State private var showingDeleteAllConfirm = false
 
+    private var showErrorAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { showing in if !showing { viewModel.errorMessage = nil } }
+        )
+    }
+
+    private var showActionAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.lastActionMessage != nil },
+            set: { showing in if !showing { viewModel.lastActionMessage = nil } }
+        )
+    }
+
     private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
@@ -31,14 +45,14 @@ struct SettingsView: View {
             }
         }
         .task { viewModel.refresh() }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: showErrorAlert) {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
         .alert(
             viewModel.lastActionMessage ?? "",
-            isPresented: .constant(viewModel.lastActionMessage != nil)
+            isPresented: showActionAlert
         ) {
             Button("OK") { viewModel.lastActionMessage = nil }
         }

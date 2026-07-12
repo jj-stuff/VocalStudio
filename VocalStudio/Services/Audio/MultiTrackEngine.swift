@@ -13,6 +13,11 @@ private struct LoadedClip {
 }
 
 private struct EffectsChain {
+    /// Players route through this mixer, never straight into the EQ: an
+    /// AVAudioUnitEQ has a single input bus, so a second clip's player connecting
+    /// to it directly would silently disconnect the first. A mixer node has as
+    /// many input buses as needed and converts formats per input.
+    let input: AVAudioMixerNode
     let equalizer: AVAudioUnitEQ
     let reverb: AVAudioUnitReverb
 }
@@ -82,67 +87,7 @@ final class MultiTrackEngine {
         tearDown()
         try configureAudioSession()
 
-        var updatedTracks = tracks
-        var projectDuration: TimeInterval = 0
-
-        for (trackIndex, track) in tracks.enumerated() {
-            var effectsChainWiredToOutput = false
-
-            for (clipIndex, clip) in track.clips.enumerated() {
-                guard let audioFile = try? AVAudioFile(forReading: clip.url) else { continue }
-                let audioFormat = audioFile.processingFormat
-                
-                guard audioFormat.sampleRate > 0, audioFormat.channelCount > 0 else { continue }
-
-                let fileDuration = Double(audioFile.length) / audioFormat.sampleRate
-                guard fileDuration > 0 else { continue }
-
-                let playerNode = AVAudioPlayerNode()
-                playerNode.volume = track.volume
-                engine.attach(playerNode)
-
-                if track.effectsApplicable {
-                    if effectsChains[track.id] == nil {
-                        let chain = makeEffectsChain()
-                        effectsChains[track.id] = chain
-                        engine.attach(chain.equalizer)
-                        engine.attach(chain.reverb)
-                    }
-                    let chain = effectsChains[track.id]!
-
-                    engine.connect(playerNode, to: chain.equalizer, format: audioFormat)
-
-                    if !effectsChainWiredToOutput {
-                        engine.connect(chain.equalizer, to: chain.reverb, format: audioFormat)
-                        engine.connect(chain.reverb, to: engine.mainMixerNode, format: audioFormat)
-                        effectsChainWiredToOutput = true
-                    }
-                } else {
-                    engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
-                }
-
-                var updatedClip = clip
-                updatedClip.duration = fileDuration
-                updatedTracks[trackIndex].clips[clipIndex] = updatedClip
-
-                loadedClips.append(LoadedClip(
-                    trackID: track.id,
-                    clip: updatedClip,
-                    player: playerNode,
-                    file: audioFile,
-                    sampleRate: audioFormat.sampleRate
-                ))
-
-                projectDuration = max(projectDuration, updatedClip.timelineEnd)
-            }
-
-            if track.isMuted { mutedTrackIDs.insert(track.id) }
-            if let chain = effectsChains[track.id] {
-                applySettingsToChain(chain, settings: track.effects)
-            }
-        }
-
-        duration = projectDuration
+        let updatedTracks = tracks.map { wireTrack($0) }
 
         // Touching mainMixerNode forces AVAudioEngine to lazily create its I/O nodes.
         // Skipping this and calling start() on a graph that has never had a node
@@ -152,6 +97,82 @@ final class MultiTrackEngine {
         _ = engine.mainMixerNode
         try engine.start()
         return updatedTracks
+    }
+
+    /// Wires one additional track into the live graph (a just-finished recording
+    /// take) without tearing everything down and rebuilding — playback, the
+    /// playhead, and every other track's state carry on untouched.
+    func addTrack(_ track: Track) throws -> Track {
+        let wired = wireTrack(track)
+        if !engine.isRunning {
+            _ = engine.mainMixerNode
+            try engine.start()
+        }
+        return wired
+    }
+
+    /// Attaches player nodes for every playable clip in `track` and connects them
+    /// into the graph (through the track's effects chain when applicable). Returns
+    /// the track with clip durations filled in from the audio files, and extends
+    /// the engine `duration` to cover them.
+    private func wireTrack(_ track: Track) -> Track {
+        var updatedTrack = track
+
+        for (clipIndex, clip) in track.clips.enumerated() {
+            guard let audioFile = try? AVAudioFile(forReading: clip.url) else { continue }
+            let audioFormat = audioFile.processingFormat
+
+            guard audioFormat.sampleRate > 0, audioFormat.channelCount > 0 else { continue }
+
+            let fileDuration = Double(audioFile.length) / audioFormat.sampleRate
+            guard fileDuration > 0 else { continue }
+
+            let playerNode = AVAudioPlayerNode()
+            playerNode.volume = track.volume
+            engine.attach(playerNode)
+
+            if track.effectsApplicable {
+                let chain = effectsChain(for: track.id, format: audioFormat)
+                engine.connect(playerNode, to: chain.input, format: audioFormat)
+            } else {
+                engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+            }
+
+            var updatedClip = clip
+            updatedClip.duration = fileDuration
+            updatedTrack.clips[clipIndex] = updatedClip
+
+            loadedClips.append(LoadedClip(
+                trackID: track.id,
+                clip: updatedClip,
+                player: playerNode,
+                file: audioFile,
+                sampleRate: audioFormat.sampleRate
+            ))
+
+            duration = max(duration, updatedClip.timelineEnd)
+        }
+
+        if track.isMuted { mutedTrackIDs.insert(track.id) }
+        if let chain = effectsChains[track.id] {
+            applySettingsToChain(chain, settings: track.effects)
+        }
+        return updatedTrack
+    }
+
+    /// Returns the track's effects chain, creating and wiring it
+    /// (input mixer → EQ → reverb → main mixer) on first use.
+    private func effectsChain(for trackID: UUID, format: AVAudioFormat) -> EffectsChain {
+        if let chain = effectsChains[trackID] { return chain }
+        let chain = makeEffectsChain()
+        effectsChains[trackID] = chain
+        engine.attach(chain.input)
+        engine.attach(chain.equalizer)
+        engine.attach(chain.reverb)
+        engine.connect(chain.input, to: chain.equalizer, format: format)
+        engine.connect(chain.equalizer, to: chain.reverb, format: format)
+        engine.connect(chain.reverb, to: engine.mainMixerNode, format: format)
+        return chain
     }
 
     // MARK: - Transport Control API
@@ -178,17 +199,29 @@ final class MultiTrackEngine {
         syncCurrentTime()
         for loadedClip in loadedClips { loadedClip.player.pause() }
         isPlaying = false
-        stopPolling()
+        if isRecording {
+            // Still capturing — the playhead must keep advancing from the recording
+            // clock, so re-anchor it to the paused position and keep polling alive.
+            recordAnchorWall = CACurrentMediaTime()
+            recordAnchorTimeline = currentTime
+        } else {
+            stopPolling()
+        }
     }
 
     func stop() {
         for loadedClip in loadedClips { loadedClip.player.stop() }
         isPlaying = false
-        currentTime = 0
-        stopPolling()
+        if !isRecording {
+            currentTime = 0
+            stopPolling()
+        }
     }
 
     func seek(to time: TimeInterval) {
+        // A take's timeline position is fixed the moment recording starts — moving
+        // the playhead mid-recording would lie about where the audio will land.
+        guard !isRecording else { return }
         let wasPlaying = isPlaying
         if wasPlaying { pause() }
         currentTime = max(0, min(time, duration))
@@ -202,10 +235,14 @@ final class MultiTrackEngine {
         } else {
             mutedTrackIDs.remove(trackID)
             if isPlaying {
-                let startTime = avAudioTime(secondsFromNow: 0.01)
+                syncCurrentTime()
+                let startTime = avAudioTime(secondsFromNow: 0.02)
                 for loadedClip in loadedClips where loadedClip.trackID == trackID {
+                    // scheduleClip starts the player itself — immediately at the
+                    // anchor, or later if the clip begins further down the timeline.
+                    // Calling play(at:) again here would override that delayed start
+                    // and make future clips audible early.
                     scheduleClip(loadedClip, currentTime: currentTime, playAnchor: startTime)
-                    loadedClip.player.play(at: startTime)
                 }
             }
         }
@@ -254,6 +291,17 @@ final class MultiTrackEngine {
         // instant-record flow that starts recording before any playback is loaded).
         try configureAudioSession()
 
+        // The permission prompt and session activation above can take real time
+        // (seconds, if this is the first-ever mic request). If the timeline was
+        // already rolling, the caller's offset is stale by exactly that much —
+        // place the take where the playhead actually is now, not where it was
+        // when the button was tapped.
+        var effectiveOffset = timelineOffset
+        if isPlaying {
+            syncCurrentTime()
+            effectiveOffset = currentTime
+        }
+
         let recordingsDir = URL.documentsDirectory.appending(path: "Recordings", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
         let outputURL = recordingsDir.appendingPathComponent(UUID().uuidString + ".m4a")
@@ -270,7 +318,7 @@ final class MultiTrackEngine {
         // Recording into nothing isn't how a timeline works — start the backing
         // track (if there is one) at the same moment, the same way tapping Play
         // does, rather than only ever capturing into silence.
-        if !isPlaying { try? play(from: timelineOffset) }
+        if !isPlaying { try? play(from: effectiveOffset) }
 
         // AVAudioRecorder and AVAudioEngine are separate Core Audio clients with
         // independent clocks — there is no API that starts them at a provably
@@ -292,9 +340,9 @@ final class MultiTrackEngine {
         // arriving at the mic and it actually showing up in the recorded file) so
         // the clip lands closer to where it was actually sung relative to the
         // backing track, not just where the playhead was when record() was called.
-        recordingTimelineOffset = timelineOffset + AVAudioSession.sharedInstance().inputLatency
+        recordingTimelineOffset = effectiveOffset + AVAudioSession.sharedInstance().inputLatency
         recordAnchorWall = CACurrentMediaTime()
-        recordAnchorTimeline = timelineOffset
+        recordAnchorTimeline = effectiveOffset
         isRecording = true
         startPolling()   // advances currentTime in real time even with no playback running
     }
@@ -336,6 +384,7 @@ final class MultiTrackEngine {
         loadedClips.removeAll()
 
         for (_, chain) in effectsChains {
+            engine.detach(chain.input)
             engine.detach(chain.equalizer)
             engine.detach(chain.reverb)
         }
@@ -433,7 +482,7 @@ final class MultiTrackEngine {
         let reverb = AVAudioUnitReverb()
         reverb.loadFactoryPreset(.mediumRoom)
         reverb.wetDryMix = 15
-        return EffectsChain(equalizer: equalizer, reverb: reverb)
+        return EffectsChain(input: AVAudioMixerNode(), equalizer: equalizer, reverb: reverb)
     }
 
     private func applySettingsToChain(_ chain: EffectsChain, settings: EffectSettings) {

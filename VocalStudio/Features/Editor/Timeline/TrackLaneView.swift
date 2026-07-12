@@ -72,9 +72,10 @@ struct TrackHeaderView: View {
                 bottomTrailingRadius: 0, topTrailingRadius: 0
             )
         )
+        .animation(DS.Animation.smooth, value: isSelected)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(.white.opacity(0.06))
+                .fill(Color(.separator))
                 .frame(width: 0.5)
         }
     }
@@ -97,7 +98,7 @@ struct TrackClipAreaView: View {
             Color(.systemBackground).opacity(0.04)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(.white.opacity(0.05))
+                        .fill(Color(.separator).opacity(0.6))
                         .frame(height: 0.5)
                 }
 

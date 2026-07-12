@@ -63,7 +63,7 @@ struct EditorTimelineView: View {
                                 .highPriorityGesture(scrubGesture)
 
                             Rectangle()
-                                .fill(.white.opacity(0.06))
+                                .fill(Color(.separator))
                                 .frame(width: totalWidth, height: 1)
 
                             ForEach(tracks) { track in
@@ -83,7 +83,7 @@ struct EditorTimelineView: View {
                                 .frame(height: Self.trackHeight)
 
                                 Rectangle()
-                                    .fill(.white.opacity(0.05))
+                                    .fill(Color(.separator).opacity(0.6))
                                     .frame(width: totalWidth, height: 1)
                             }
                         }
@@ -92,7 +92,7 @@ struct EditorTimelineView: View {
                         let playheadH = Self.rulerHeight + CGFloat(tracks.count) * (Self.trackHeight + 1)
                         Group {
                             Capsule()
-                                .fill(Color.white.opacity(0.85))
+                                .fill(Color.primary.opacity(0.85))
                                 .frame(width: 2.5, height: playheadH)
                                 .offset(x: CGFloat(currentTime) * effectiveZoom - 1.25)
 
@@ -108,6 +108,8 @@ struct EditorTimelineView: View {
                 }
                 .simultaneousGesture(pinchGesture)
             }
+            // A finished take slides its new row in instead of popping.
+            .animation(DS.Animation.spring, value: tracks.count)
         }
         .background(Color(.systemBackground).opacity(0.08))
     }
