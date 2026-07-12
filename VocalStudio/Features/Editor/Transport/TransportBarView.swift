@@ -41,11 +41,15 @@ struct TransportBarView: View {
 
     private var timeDisplay: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // Rounded design + monospaced digits — the system timer/stopwatch look,
+            // and the digits don't jitter horizontally as they tick.
             Text(formatTime(currentTime))
-                .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                .font(.system(.title, design: .rounded, weight: .semibold))
+                .monospacedDigit()
                 .foregroundStyle(.primary)
             Text(formatTime(duration))
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(.footnote, design: .rounded))
+                .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
     }
@@ -67,10 +71,12 @@ struct TransportBarView: View {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(.primary)
+                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 64, height: 64)
                 .glassEffect(in: Circle())
         }
         .buttonStyle(.plain)
+        .animation(DS.Animation.smooth, value: isPlaying)
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
     }
 
@@ -80,19 +86,17 @@ struct TransportBarView: View {
                 Circle()
                     .fill(isRecording ? Color.red : Color.red.opacity(0.15))
                     .frame(width: 40, height: 40)
-                if isRecording {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.white)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 16, height: 16)
-                }
+                // One shape morphing circle ⇄ square (the Camera/Voice Memos record
+                // affordance) instead of swapping two views, so the corner radius
+                // and color animate as a single continuous gesture.
+                RoundedRectangle(cornerRadius: isRecording ? 4 : 8)
+                    .fill(isRecording ? Color.white : Color.red)
+                    .frame(width: 16, height: 16)
             }
             .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
+        .animation(DS.Animation.spring, value: isRecording)
         .accessibilityLabel(isRecording ? "Stop recording" : "Start recording")
     }
 

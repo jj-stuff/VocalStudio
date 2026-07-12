@@ -89,7 +89,10 @@ final class EditorViewModel {
             engine.pause()
         } else {
             do {
-                try engine.play(from: currentTime)
+                // Play with the playhead parked at the very end restarts from the
+                // top, instead of silently doing nothing until the user rewinds.
+                let startTime = (duration > 0 && currentTime >= duration) ? 0 : currentTime
+                try engine.play(from: startTime)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -280,6 +283,10 @@ final class EditorViewModel {
             while !Task.isCancelled {
                 guard let self else { break }
                 self.currentTime = self.engine.currentTime
+                // The engine's duration grows live while recording runs past the end
+                // of the project — without mirroring it, the timeline never widens
+                // and the playhead runs straight off the visible ruler.
+                self.duration = self.engine.duration
                 self.isPlaying = self.engine.isPlaying
                 self.isRecording = self.engine.isRecording
                 try? await Task.sleep(for: .milliseconds(33))
@@ -289,12 +296,22 @@ final class EditorViewModel {
 
     private func addRecordingClip(_ clip: AudioClip) {
         let index = recordingTracks.count
-        let newTrack = Track(
+        var newTrack = Track(
             id: UUID(),
             name: "Take \(index + 1)",
             kind: .userRecording(index: index),
             clips: [clip]
         )
+
+        // Wire just this one track into the live graph — a full loadTracks reload
+        // here would stop playback and snap the playhead back to zero every time
+        // a take finished.
+        do {
+            newTrack = try engine.addTrack(newTrack)
+            duration = engine.duration
+        } catch {
+            errorMessage = error.localizedDescription
+        }
         tracks.append(newTrack)
         recordingTracks.append(newTrack)
 
@@ -308,8 +325,6 @@ final class EditorViewModel {
         )
         project = project.withRecording(recording)
         Task { try? await store.save(project) }
-
-        Task { await loadEngine() }
     }
 
     @MainActor

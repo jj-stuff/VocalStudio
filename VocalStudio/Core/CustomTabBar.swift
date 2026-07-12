@@ -22,6 +22,8 @@ struct CustomTabBar: View {
     @Binding var selectedTab: AppTab
     let onInstantRecord: () -> Void
 
+    @Namespace private var tabSelection
+
     private static let donutSize: CGFloat = DS.Size.tabBarH + 12
 
     var body: some View {
@@ -47,6 +49,7 @@ struct CustomTabBar: View {
         }
         .padding(.horizontal, DS.Spacing.xl)
         .padding(.bottom, DS.Spacing.xl)
+        .sensoryFeedback(.selection, trigger: selectedTab)
     }
 
     // MARK: - Tab item
@@ -69,8 +72,18 @@ struct CustomTabBar: View {
                     .font(.system(size: 10, weight: tab.iconWeight(isSelected: isSelected)))
                     .foregroundStyle(tab.itemColor(isSelected: isSelected))
             }
-            .frame(maxWidth: .infinity)
             .padding(.vertical, DS.Spacing.xs)
+            .padding(.horizontal, DS.Spacing.md)
+            // The selection pill slides between tabs via matchedGeometryEffect,
+            // driven by the withAnimation in the button action.
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(DS.Brand.purple1.opacity(0.16))
+                        .matchedGeometryEffect(id: "selectedTabPill", in: tabSelection)
+                }
+            }
+            .frame(maxWidth: .infinity)
             // Make the full content area (icon + label + all padding) tappable,
             // not just the tight bounding rect of the text/image glyphs.
             .contentShape(Rectangle())

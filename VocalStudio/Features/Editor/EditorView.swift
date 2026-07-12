@@ -5,6 +5,15 @@ struct EditorView: View {
 
     @State private var showingRename = false
     @State private var pendingTitle = ""
+    @FocusState private var renameFieldFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var showErrorAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { showing in if !showing { viewModel.errorMessage = nil } }
+        )
+    }
 
     // Bridges the track-selection state into a sheet-presented Bool. Every track kind
     // gets a sheet now (volume applies to all of them) — only the effects tiles inside
@@ -84,9 +93,18 @@ struct EditorView: View {
         }
         .preference(key: TabBarHiddenKey.self, value: true)
         .animation(DS.Animation.spring, value: viewModel.stemStatus)
+        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isRecording)
+        .sensoryFeedback(.selection, trigger: viewModel.selectedTrackID)
+        .sensoryFeedback(trigger: viewModel.stemStatus) { _, newStatus in
+            switch newStatus {
+            case .done: .success
+            case .failed: .error
+            default: nil
+            }
+        }
         .task { await viewModel.start() }
         .onDisappear { viewModel.tearDown() }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: showErrorAlert) {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
@@ -125,6 +143,7 @@ struct EditorView: View {
                     .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: DS.Radius.md))
                     .autocorrectionDisabled()
                     .submitLabel(.done)
+                    .focused($renameFieldFocused)
                     .onSubmit(commitRename)
 
                 HStack(spacing: DS.Spacing.sm) {
@@ -160,6 +179,9 @@ struct EditorView: View {
             .padding(.horizontal, DS.Spacing.lg)
         }
         .ignoresSafeArea(.container)
+        // Renaming is a one-field flow — bring the keyboard up with the card
+        // instead of demanding an extra tap into the field.
+        .onAppear { renameFieldFocused = true }
     }
 
     private func commitRename() {
@@ -260,6 +282,11 @@ struct EditorView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            // Background interaction means a different track header can be tapped
+            // while this sheet stays up. The tiles copy their initial values into
+            // @State, so without re-identifying the whole sheet per track, the old
+            // track's volume/EQ values would be shown — and applied — to the new one.
+            .id(track.id)
         }
     }
 
@@ -268,12 +295,15 @@ struct EditorView: View {
     private var background: some View {
         ZStack {
             Color(.systemBackground)
+            // A whisper of the brand purples over the system background. Much
+            // lighter in light mode — the deep-purple radials were tuned for dark
+            // backgrounds and read as smudges over white.
             RadialGradient(
-                colors: [Color(red: 0.18, green: 0.06, blue: 0.38).opacity(0.30), .clear],
+                colors: [DS.Brand.purple2.opacity(colorScheme == .dark ? 0.30 : 0.10), .clear],
                 center: .topLeading, startRadius: 0, endRadius: 420
             )
             RadialGradient(
-                colors: [Color(red: 0.08, green: 0.04, blue: 0.24).opacity(0.20), .clear],
+                colors: [DS.Brand.purple1.opacity(colorScheme == .dark ? 0.20 : 0.08), .clear],
                 center: .bottomTrailing, startRadius: 0, endRadius: 320
             )
         }

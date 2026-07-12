@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AnimatedBlobBackground: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var blob1Offset = CGSize(width: -60, height: -80)
     @State private var blob2Offset = CGSize(width: 80, height: 60)
@@ -46,7 +47,9 @@ struct AnimatedBlobBackground: View {
             )
             .offset(x: 20, y: 160)
         }
-        .onAppear { animate() }
+        // Reduce Motion keeps the static gradient composition — the blobs are pure
+        // ambience, so there's nothing to replace them with; they just hold still.
+        .onAppear { if !reduceMotion { animate() } }
     }
 
     private func blob(color: Color, size: CGFloat, offset: CGSize, scale: CGFloat, blur: CGFloat) -> some View {

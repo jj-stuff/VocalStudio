@@ -26,6 +26,13 @@ struct ProjectListView: View {
         showingImportMenu || viewModel.isConvertingVideo || isLoadingPhoto
     }
 
+    private var showErrorAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { showing in if !showing { viewModel.errorMessage = nil } }
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             AnimatedBlobBackground()
@@ -99,11 +106,14 @@ struct ProjectListView: View {
             photoPickerItem = nil
             Task { await handlePhotoItem(item) }
         }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: showErrorAlert) {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        // A gentle confirmation the moment an import actually lands as a project —
+        // imports end behind a loading overlay, so the tap is long past by then.
+        .sensoryFeedback(.success, trigger: viewModel.projects.count) { old, new in new > old }
         .task { await viewModel.loadProjects() }
     }
 
@@ -157,10 +167,7 @@ struct ProjectListView: View {
     private var projectList: some View {
         List {
             if filteredProjects.isEmpty {
-                Text("No projects match “\(searchQuery)”")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
+                ContentUnavailableView.search(text: searchQuery)
                     .padding(.top, DS.Spacing.xxl)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
