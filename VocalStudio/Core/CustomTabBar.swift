@@ -24,7 +24,10 @@ struct CustomTabBar: View {
 
     @Namespace private var tabSelection
 
-    private static let recordSize: CGFloat = DS.Size.tabBarH + 4
+    /// Same diameter as the projects-list FAB, and both use the same trailing
+    /// padding (DS.Spacing.xl) — so the "+" button sits exactly on the record
+    /// button's vertical axis instead of a few points off.
+    private static let recordSize: CGFloat = DS.Size.fab
 
     var body: some View {
         // Pill bar with the tabs, plus a separate circular record button beside it —
@@ -73,17 +76,18 @@ struct CustomTabBar: View {
                     .foregroundStyle(tab.itemColor(isSelected: isSelected))
             }
             .padding(.vertical, DS.Spacing.xs)
-            .padding(.horizontal, DS.Spacing.md)
+            .frame(maxWidth: .infinity)
             // The selection pill slides between tabs via matchedGeometryEffect,
-            // driven by the withAnimation in the button action.
+            // driven by the withAnimation in the button action. It spans the whole
+            // tab column (minus a small inset) rather than hugging the label.
             .background {
                 if isSelected {
                     Capsule()
                         .fill(Color.primary.opacity(0.08))
                         .matchedGeometryEffect(id: "selectedTabPill", in: tabSelection)
+                        .padding(.horizontal, DS.Spacing.xxs)
                 }
             }
-            .frame(maxWidth: .infinity)
             // Make the full content area (icon + label + all padding) tappable,
             // not just the tight bounding rect of the text/image glyphs.
             .contentShape(Rectangle())

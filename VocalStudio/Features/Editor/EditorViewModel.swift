@@ -21,8 +21,28 @@ final class EditorViewModel {
 
     private(set) var isPlaying = false
     private(set) var isRecording = false
+    private(set) var isRecordingPaused = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
+
+    /// What the play/pause button reflects and toggles: audible playback, or a
+    /// recording that is actively capturing. A paused recording counts as paused.
+    var transportActive: Bool {
+        isPlaying || (isRecording && !isRecordingPaused)
+    }
+
+    /// Timeline span of the in-flight recording — drives the live red lane in the
+    /// timeline while capturing, so the take is visible before it's finished.
+    var recordingRange: ClosedRange<TimeInterval>? {
+        guard isRecording, let start = engine.activeRecordingStart else { return nil }
+        return start...max(start, currentTime)
+    }
+
+    /// Instant-record projects have only a silent placeholder source — nothing
+    /// real to separate, so the editor hides the Separate button entirely.
+    var canSeparateStems: Bool {
+        !project.hasSilentPlaceholderSource
+    }
 
     // MARK: - Stem separation
 
@@ -85,14 +105,16 @@ final class EditorViewModel {
     // MARK: - Transport
 
     func togglePlayback() {
-        if isPlaying {
+        if transportActive {
             engine.pause()
         } else {
             do {
                 // Play with the playhead parked at the very end restarts from the
                 // top, instead of silently doing nothing until the user rewinds.
-                let startTime = (duration > 0 && currentTime >= duration) ? 0 : currentTime
-                try engine.play(from: startTime)
+                // Never while recording: the playhead sits at the growing end the
+                // whole time there, and resuming must continue, not restart.
+                let atEnd = duration > 0 && currentTime >= duration && !isRecording
+                try engine.play(from: atEnd ? 0 : currentTime)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -100,6 +122,9 @@ final class EditorViewModel {
     }
 
     func rewind() {
+        // The engine ignores seeks while recording (the take's position is fixed);
+        // don't zero the local playhead either or it flickers for a poll tick.
+        guard !isRecording else { return }
         engine.seek(to: 0)
         currentTime = 0
     }
@@ -289,6 +314,7 @@ final class EditorViewModel {
                 self.duration = self.engine.duration
                 self.isPlaying = self.engine.isPlaying
                 self.isRecording = self.engine.isRecording
+                self.isRecordingPaused = self.engine.isRecordingPaused
                 try? await Task.sleep(for: .milliseconds(33))
             }
         }

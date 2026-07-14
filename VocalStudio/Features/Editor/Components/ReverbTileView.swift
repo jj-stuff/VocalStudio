@@ -19,24 +19,26 @@ struct ReverbTileView: View {
             slider
         }
         .padding(20)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.tile))
+        .background(tileBackground)
+        .clipShape(.rect(cornerRadius: 24))
     }
 
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("REVERB")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white.opacity(0.6))
                     .tracking(2)
                 Text("Room Size")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
             }
             Spacer()
             Text("\(Int(sliderValue))%")
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
-                .foregroundStyle(.primary)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.white)
+                .fontDesign(.monospaced)
         }
     }
 
@@ -47,7 +49,14 @@ struct ReverbTileView: View {
                 let mix = CGFloat(sliderValue) / 100
                 let height = 4 + (28 * mix * (1 - factor * 0.6))
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.primary.opacity(0.85 - 0.6 * Double(factor)))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.3, green: 0.9, blue: 0.7), Color(red: 0.1, green: 0.65, blue: 0.5)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .opacity(0.4 + 0.6 * Double(1 - factor * 0.5))
+                    )
                     .frame(height: height)
                     .animation(.spring(duration: 0.4), value: sliderValue)
             }
@@ -58,8 +67,23 @@ struct ReverbTileView: View {
 
     private var slider: some View {
         Slider(value: $sliderValue, in: 0...100)
-            .tint(.primary)
+            .tint(Color(red: 0.3, green: 0.9, blue: 0.6))
             .onChange(of: sliderValue) { onReverbChange(Float(sliderValue)) }
-            .accessibilityLabel("Reverb mix")
+    }
+
+    private var tileBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.03, green: 0.18, blue: 0.17), Color(red: 0.05, green: 0.23, blue: 0.2)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [Color(red: 0.1, green: 0.8, blue: 0.6).opacity(0.3), .clear],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: 180
+            )
+        }
     }
 }

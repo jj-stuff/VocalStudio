@@ -27,6 +27,11 @@ enum DS {
         static let thumbnail:   CGFloat = 56
         static let thumbRadius: CGFloat = 16
         static let tabBarH:     CGFloat = 58
+        /// Full rendered height of the floating tab bar assembly (pill content plus
+        /// its vertical padding). Anything that needs to clear the bar — content
+        /// insets, the projects-list FAB — measures against this, so the numbers
+        /// can't silently drift apart.
+        static let tabBarVisualH: CGFloat = tabBarH + Spacing.xxs * 2
     }
 
     enum Animation {

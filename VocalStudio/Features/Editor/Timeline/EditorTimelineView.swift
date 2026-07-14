@@ -4,6 +4,9 @@ struct EditorTimelineView: View {
     let tracks: [Track]
     let currentTime: TimeInterval
     let duration: TimeInterval
+    /// Span of an in-flight recording. Non-nil while capturing: the timeline shows
+    /// a live, growing red lane for it, so the take is visible before it's stopped.
+    let recordingRange: ClosedRange<TimeInterval>?
     let selectedTrackID: UUID?
     let onSelectTrack: (UUID) -> Void
     let onMuteTrack: (UUID) -> Void
@@ -16,9 +19,12 @@ struct EditorTimelineView: View {
     @GestureState private var pinchScale: CGFloat = 1.0
 
     private static let headerWidth: CGFloat = 64
-    private static let trackHeight: CGFloat = 88
+    private static let trackHeight: CGFloat = 100
     private static let rulerHeight: CGFloat = 24
     private static let zoomRange: ClosedRange<CGFloat> = 20...400
+
+    /// Rows drawn = real tracks plus the live recording lane while capturing.
+    private var rowCount: Int { tracks.count + (recordingRange == nil ? 0 : 1) }
 
     /// What layout actually uses — `zoom` scaled live by an in-flight pinch, so the
     /// timeline visibly zooms while you pinch instead of only snapping at the end.
@@ -44,6 +50,11 @@ struct EditorTimelineView: View {
                             onMute: { onMuteTrack(track.id) }
                         )
                         .frame(height: Self.trackHeight)
+                    }
+
+                    if recordingRange != nil {
+                        RecordingHeaderView()
+                            .frame(height: Self.trackHeight)
                     }
                 }
                 .frame(width: Self.headerWidth)
@@ -86,10 +97,19 @@ struct EditorTimelineView: View {
                                     .fill(Color(.separator).opacity(0.6))
                                     .frame(width: totalWidth, height: 1)
                             }
+
+                            if let recordingRange {
+                                RecordingLaneView(range: recordingRange, pixelsPerSecond: effectiveZoom)
+                                    .frame(width: totalWidth, height: Self.trackHeight)
+
+                                Rectangle()
+                                    .fill(Color(.separator).opacity(0.6))
+                                    .frame(width: totalWidth, height: 1)
+                            }
                         }
 
                         // Playhead — full height
-                        let playheadH = Self.rulerHeight + CGFloat(tracks.count) * (Self.trackHeight + 1)
+                        let playheadH = Self.rulerHeight + CGFloat(rowCount) * (Self.trackHeight + 1)
                         Group {
                             Capsule()
                                 .fill(Color.primary.opacity(0.85))
@@ -108,8 +128,9 @@ struct EditorTimelineView: View {
                 }
                 .simultaneousGesture(pinchGesture)
             }
-            // A finished take slides its new row in instead of popping.
-            .animation(DS.Animation.spring, value: tracks.count)
+            // A finished take slides its new row in instead of popping, and the
+            // live recording lane appears/disappears the same way.
+            .animation(DS.Animation.spring, value: rowCount)
         }
         .background(Color(.systemBackground).opacity(0.08))
     }
@@ -148,5 +169,71 @@ private extension CGFloat {
         // names resolve to CGFloat's own static members instead of the global
         // comparison functions.
         Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+// MARK: - Live recording row
+
+/// Header for the in-flight recording lane — a pulsing red dot so it clearly reads
+/// as "capturing right now", not another finished take.
+private struct RecordingHeaderView: View {
+    var body: some View {
+        VStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.15))
+                    .frame(width: 30, height: 30)
+                // symbolEffect animates SF Symbols only, hence an Image, not a Circle.
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .symbolEffect(.pulse)
+            }
+            Text("Recording")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.red)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            Color.red.opacity(0.06),
+            in: UnevenRoundedRectangle(
+                topLeadingRadius: DS.Radius.sm, bottomLeadingRadius: DS.Radius.sm,
+                bottomTrailingRadius: 0, topTrailingRadius: 0
+            )
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recording in progress")
+    }
+}
+
+/// The growing clip for the take being captured. Purely visual — the real,
+/// editable clip replaces it the moment recording stops.
+private struct RecordingLaneView: View {
+    let range: ClosedRange<TimeInterval>
+    let pixelsPerSecond: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Color(.systemBackground).opacity(0.04)
+
+            RoundedRectangle(cornerRadius: 6)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.55, green: 0.10, blue: 0.15),
+                                 Color(red: 0.38, green: 0.06, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.red.opacity(0.6), lineWidth: 1)
+                }
+                .frame(width: max(4, (range.upperBound - range.lowerBound) * pixelsPerSecond))
+                .padding(.vertical, DS.Spacing.xs)
+                .offset(x: range.lowerBound * pixelsPerSecond)
+        }
+        .allowsHitTesting(false)
     }
 }

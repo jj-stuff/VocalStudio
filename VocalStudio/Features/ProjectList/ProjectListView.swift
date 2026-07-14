@@ -13,7 +13,9 @@ struct ProjectListView: View {
     @State private var searchQuery           = ""
     @FocusState private var isSearchFocused: Bool
 
-    private let tabClearance: CGFloat = DS.Size.tabBarH + DS.Spacing.lg
+    /// Distance from the safe-area bottom to the TOP of the floating tab bar —
+    /// derived from the bar's real metrics so nothing overlaps it.
+    private let tabClearance: CGFloat = DS.Size.tabBarVisualH + DS.Spacing.xl
 
     private var filteredProjects: [Project] {
         guard !searchQuery.isEmpty else { return viewModel.projects }
@@ -58,9 +60,12 @@ struct ProjectListView: View {
                 TapGesture().onEnded { isSearchFocused = false }
             )
 
+            // Trailing padding matches the tab bar's horizontal padding, and the
+            // record button is the same diameter — so the "+" floats exactly on
+            // the record button's vertical axis, a spacing step above the bar.
             fabButton
-                .padding(.trailing, DS.Spacing.lg)
-                .padding(.bottom, tabClearance)
+                .padding(.trailing, DS.Spacing.xl)
+                .padding(.bottom, tabClearance + DS.Spacing.sm)
                 .zIndex(5)
         }
         .sheet(isPresented: $showingImportMenu) {
@@ -103,8 +108,6 @@ struct ProjectListView: View {
         // A gentle confirmation the moment an import actually lands as a project —
         // by then the picker interaction is long past.
         .sensoryFeedback(.success, trigger: viewModel.projects.count) { old, new in new > old }
-        .animation(DS.Animation.smooth, value: viewModel.pendingImports)
-        .animation(DS.Animation.smooth, value: viewModel.projects.count)
         .task { await viewModel.loadProjects() }
     }
 
@@ -197,6 +200,10 @@ struct ProjectListView: View {
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
+        // Scoped to the List and keyed to pendingImports only: pending rows animate
+        // in/out, but the initial projects load doesn't animate the whole screen's
+        // layout (which read as everything flying in from the top-left corner).
+        .animation(DS.Animation.smooth, value: viewModel.pendingImports)
     }
 
     private var rowInsets: EdgeInsets {

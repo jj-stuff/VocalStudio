@@ -31,6 +31,11 @@ final class MultiTrackEngine {
 
     private(set) var isPlaying = false
     private(set) var isRecording = false
+    /// True while a recording exists but is paused (transport pause during capture).
+    private(set) var isRecordingPaused = false
+    /// Timeline position where the in-flight recording started — drives the live
+    /// "recording" lane in the timeline. Nil when no recording is running.
+    private(set) var activeRecordingStart: TimeInterval?
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
 
@@ -178,8 +183,21 @@ final class MultiTrackEngine {
     // MARK: - Transport Control API
 
     func play(from time: TimeInterval) throws {
+        // Resuming the transport while a recording is paused resumes the capture
+        // too — the recorder appends to the same file, and because the playhead was
+        // frozen for exactly the paused span, file time and timeline time stay in
+        // lockstep. This must happen before the empty-clips guard: a solo recording
+        // (instant record with no backing track) has no clips to play.
+        if isRecording, isRecordingPaused {
+            audioRecorder?.record()
+            isRecordingPaused = false
+            recordAnchorWall = CACurrentMediaTime()
+            recordAnchorTimeline = time
+            startPolling()
+        }
+
         guard !loadedClips.isEmpty else { return }
-        
+
         if !engine.isRunning { try engine.start() }
 
         let startTime = avAudioTime(secondsFromNow: 0.02)
@@ -200,10 +218,13 @@ final class MultiTrackEngine {
         for loadedClip in loadedClips { loadedClip.player.pause() }
         isPlaying = false
         if isRecording {
-            // Still capturing — the playhead must keep advancing from the recording
-            // clock, so re-anchor it to the paused position and keep polling alive.
+            // Pausing the transport pauses the capture too — otherwise the playhead
+            // and the recorded file drift apart by however long the pause lasted.
+            audioRecorder?.pause()
+            isRecordingPaused = true
             recordAnchorWall = CACurrentMediaTime()
             recordAnchorTimeline = currentTime
+            // Polling stays alive so resume picks up seamlessly.
         } else {
             stopPolling()
         }
@@ -343,18 +364,24 @@ final class MultiTrackEngine {
         recordingTimelineOffset = effectiveOffset + AVAudioSession.sharedInstance().inputLatency
         recordAnchorWall = CACurrentMediaTime()
         recordAnchorTimeline = effectiveOffset
+        activeRecordingStart = effectiveOffset
         isRecording = true
+        isRecordingPaused = false
         startPolling()   // advances currentTime in real time even with no playback running
     }
 
     func finishRecording() throws -> AudioClip? {
         guard isRecording, let recorder = audioRecorder, let url = recordingURL else {
             isRecording = false
+            isRecordingPaused = false
+            activeRecordingStart = nil
             return nil
         }
         recorder.stop()
         audioRecorder = nil
         isRecording = false
+        isRecordingPaused = false
+        activeRecordingStart = nil
 
         // Re-derive duration from the written file rather than recorder.currentTime —
         // consistent with how every other clip's duration is read in this engine.
@@ -375,6 +402,8 @@ final class MultiTrackEngine {
             audioRecorder?.stop()
             audioRecorder = nil
             isRecording = false
+            isRecordingPaused = false
+            activeRecordingStart = nil
         }
 
         for loadedClip in loadedClips {
@@ -440,10 +469,12 @@ final class MultiTrackEngine {
         if isPlaying {
             let elapsed = CACurrentMediaTime() - playAnchorWall
             currentTime = min(playAnchorTimeline + max(0, elapsed), duration)
-        } else if isRecording {
+        } else if isRecording, !isRecordingPaused {
             // No playback clock to follow while recording solo (e.g. instant-record with
             // no backing track) — advance from wall-clock instead, so the playhead still
             // visibly moves. Let duration grow with it so the ruler/scroll width keeps up.
+            // While the recording is paused, the playhead holds still (the recorder is
+            // paused too, so file time and timeline time stay matched).
             let elapsed = CACurrentMediaTime() - recordAnchorWall
             currentTime = recordAnchorTimeline + max(0, elapsed)
             duration = max(duration, currentTime)
