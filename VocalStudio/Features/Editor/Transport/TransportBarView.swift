@@ -33,7 +33,7 @@ struct TransportBarView: View {
         .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
         .overlay(alignment: .bottom) {
             RoundedRectangle(cornerRadius: DS.Radius.hero)
-                .stroke(.white.opacity(0.08), lineWidth: 0.5)
+                .stroke(Color(.separator).opacity(0.6), lineWidth: 0.5)
         }
     }
 
@@ -41,15 +41,13 @@ struct TransportBarView: View {
 
     private var timeDisplay: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Rounded design + monospaced digits — the system timer/stopwatch look,
-            // and the digits don't jitter horizontally as they tick.
+            // Monospaced timestamps — the digits don't jitter horizontally as they
+            // tick, and it reads as a player readout rather than body text.
             Text(formatTime(currentTime))
-                .font(.system(.title, design: .rounded, weight: .semibold))
-                .monospacedDigit()
+                .font(.system(.title, design: .monospaced, weight: .semibold))
                 .foregroundStyle(.primary)
             Text(formatTime(duration))
-                .font(.system(.footnote, design: .rounded))
-                .monospacedDigit()
+                .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -130,14 +128,26 @@ struct TransportBarView: View {
                 .accessibilityLabel("Separate vocals from instrumental")
 
             case .running(let p):
-                VStack(spacing: 3) {
-                    ProgressView(value: p)
-                        .progressViewStyle(.linear)
-                        .tint(DS.Brand.purple1)
-                        .frame(width: 72)
-                    Text("Separating…")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                // This is the only progress surface now (no blocking overlay), so it
+                // has to carry the state by itself: indeterminate while the ~100MB
+                // model loads, then a determinate bar with a live percentage. The
+                // editor stays fully usable the whole time.
+                VStack(alignment: .leading, spacing: 3) {
+                    if p > 0 {
+                        ProgressView(value: p)
+                            .progressViewStyle(.linear)
+                            .tint(DS.Brand.purple1)
+                            .frame(width: 88)
+                        Text("Separating… \(Int(p * 100))%")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Preparing model…")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
             case .done:

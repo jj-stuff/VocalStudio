@@ -23,27 +23,25 @@ struct EQTileView: View {
             bandSliders
         }
         .padding(20)
-        .background(tileBackground)
-        .clipShape(.rect(cornerRadius: 24))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.tile))
     }
 
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("EQ TILT")
-                    .font(.caption.weight(.black))
-                    .foregroundStyle(.white.opacity(0.6))
+                Text("EQ")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                     .tracking(2)
                 Text("Parametric EQ")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
             Spacer()
             let sign = averageGain >= 0 ? "+" : ""
             Text("\(sign)\(String(format: "%.1f", averageGain)) dB")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(.white)
-                .fontDesign(.monospaced)
+                .font(.system(size: 22, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
         }
     }
 
@@ -59,37 +57,22 @@ struct EQTileView: View {
                 HStack(spacing: 10) {
                     Text(label)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(.secondary)
                         .frame(width: 60, alignment: .leading)
 
                     Slider(value: $values[i], in: -12...12)
-                        .tint(Color(red: 1.0, green: 0.7, blue: 0.15))
+                        .tint(.primary)
                         .onChange(of: values[i]) { onEQChange(Float(values[i]), i) }
+                        .accessibilityLabel("\(label) gain")
 
                     let sign = values[i] >= 0 ? "+" : ""
                     Text("\(sign)\(Int(values[i]))")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .fontDesign(.monospaced)
                         .frame(width: 28, alignment: .trailing)
                 }
             }
-        }
-    }
-
-    private var tileBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.18, green: 0.07, blue: 0.01), Color(red: 0.22, green: 0.1, blue: 0.02)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            RadialGradient(
-                colors: [Color(red: 1.0, green: 0.6, blue: 0.0).opacity(0.35), .clear],
-                center: .topTrailing,
-                startRadius: 0,
-                endRadius: 200
-            )
         }
     }
 }
@@ -109,13 +92,13 @@ private struct EQCurveView: View {
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: 0))
                 path.addLine(to: CGPoint(x: x, y: h))
-                context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.5)
+                context.stroke(path, with: .color(.secondary.opacity(0.15)), lineWidth: 0.5)
             }
             let midY = h / 2
             var midLine = Path()
             midLine.move(to: CGPoint(x: 0, y: midY))
             midLine.addLine(to: CGPoint(x: w, y: midY))
-            context.stroke(midLine, with: .color(.white.opacity(0.12)), lineWidth: 0.5)
+            context.stroke(midLine, with: .color(.secondary.opacity(0.25)), lineWidth: 0.5)
 
             // EQ curve (smooth through 4 band points + endpoints)
             let bandXPositions: [CGFloat] = [0.1, 0.3, 0.65, 0.9]
@@ -139,14 +122,14 @@ private struct EQCurveView: View {
                     control2: CGPoint(x: cpX, y: curr.1)
                 )
             }
-            context.stroke(curvePath, with: .color(Color(red: 1.0, green: 0.7, blue: 0.1)), lineWidth: 2)
+            context.stroke(curvePath, with: .color(.primary), lineWidth: 2)
 
             // Fill under curve
             var fillPath = curvePath
             fillPath.addLine(to: CGPoint(x: w, y: h))
             fillPath.addLine(to: CGPoint(x: 0, y: h))
             fillPath.closeSubpath()
-            context.fill(fillPath, with: .color(Color(red: 1.0, green: 0.65, blue: 0.0).opacity(0.12)))
+            context.fill(fillPath, with: .color(.primary.opacity(0.06)))
         }
     }
 }

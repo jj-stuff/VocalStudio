@@ -97,7 +97,7 @@ struct EditorTimelineView: View {
                                 .offset(x: CGFloat(currentTime) * effectiveZoom - 1.25)
 
                             Capsule()
-                                .fill(DS.Brand.purple1.opacity(0.4))
+                                .fill(Color.primary.opacity(0.25))
                                 .frame(width: 5, height: playheadH)
                                 .blur(radius: 3)
                                 .offset(x: CGFloat(currentTime) * effectiveZoom - 2.5)

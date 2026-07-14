@@ -26,7 +26,7 @@ struct SettingsView: View {
 
     var body: some View {
         ZStack {
-            Color(.systemBackground).ignoresSafeArea()
+            Color(.systemGroupedBackground).ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Spacing.lg) {
@@ -72,7 +72,7 @@ struct SettingsView: View {
         HStack(spacing: DS.Spacing.sm) {
             Image(systemName: "gearshape.fill")
                 .font(.system(size: 22))
-                .foregroundStyle(DS.Brand.purple1)
+                .foregroundStyle(.primary)
             Text("Settings")
                 .font(.title2.weight(.bold))
                 .foregroundStyle(.primary)
@@ -101,7 +101,7 @@ struct SettingsView: View {
                     HStack {
                         Image(systemName: icon(for: entry.name))
                             .font(.system(size: 14))
-                            .foregroundStyle(DS.Brand.purple1)
+                            .foregroundStyle(.primary)
                             .frame(width: 22)
                         Text(label(for: entry.name))
                             .font(.system(size: 14))
@@ -125,16 +125,16 @@ struct SettingsView: View {
             } label: {
                 Label("Clean Up Unused Files", systemImage: "sparkles")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(DS.Brand.purple1)
+                    .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DS.Spacing.sm - DS.Spacing.xxs)
-                    .glassEffect(in: .capsule)
+                    .background(Color(.tertiarySystemFill), in: .capsule)
             }
             .buttonStyle(.plain)
             .disabled(viewModel.isWorking)
         }
         .padding(DS.Spacing.md)
-        .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Danger zone
@@ -158,13 +158,13 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DS.Spacing.sm - DS.Spacing.xxs)
-                    .glassEffect(in: .capsule)
+                    .background(Color(.tertiarySystemFill), in: .capsule)
             }
             .buttonStyle(.plain)
             .disabled(viewModel.isWorking)
         }
         .padding(DS.Spacing.md)
-        .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Loading
@@ -174,7 +174,7 @@ struct SettingsView: View {
             Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
             ProgressView()
                 .controlSize(.large)
-                .tint(DS.Brand.purple1)
+                .tint(.primary)
         }
     }
 

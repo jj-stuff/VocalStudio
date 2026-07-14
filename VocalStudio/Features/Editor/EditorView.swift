@@ -6,7 +6,6 @@ struct EditorView: View {
     @State private var showingRename = false
     @State private var pendingTitle = ""
     @FocusState private var renameFieldFocused: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -65,11 +64,6 @@ struct EditorView: View {
                     onScrub: viewModel.seek
                 )
                 .frame(maxHeight: .infinity)
-            }
-
-            if case .running(let progress) = viewModel.stemStatus {
-                separationOverlay(progress: progress)
-                    .transition(.opacity)
             }
 
             if showingRename {
@@ -160,16 +154,10 @@ struct EditorView: View {
                     Button(action: commitRename) {
                         Text("Save")
                             .font(.body.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(.systemBackground))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, DS.Spacing.sm + DS.Spacing.xxs)
-                            .background(
-                                LinearGradient(
-                                    colors: [DS.Brand.purple1, DS.Brand.purple2],
-                                    startPoint: .leading, endPoint: .trailing
-                                ),
-                                in: .capsule
-                            )
+                            .background(Color.primary, in: .capsule)
                     }
                     .buttonStyle(.plain)
                 }
@@ -187,60 +175,6 @@ struct EditorView: View {
     private func commitRename() {
         viewModel.renameProject(to: pendingTitle)
         withAnimation(DS.Animation.spring) { showingRename = false }
-    }
-
-    // MARK: - Separation overlay
-    //
-    // The model is bundled in the app, not downloaded — but loading an ~100MB Core ML
-    // graph the first time still takes a few real seconds, and the old inline progress
-    // bar in the transport bar was too small to explain that. This makes the two
-    // phases (loading the model vs. actually processing audio) legible without being
-    // technical about either one.
-
-    private func separationOverlay(progress: Double) -> some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            VStack(spacing: DS.Spacing.xl) {
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(
-                            colors: [DS.Brand.purple1.opacity(0.6), DS.Brand.purple2.opacity(0.4)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 72, height: 72)
-                        .blur(radius: 22)
-
-                    if progress > 0 {
-                        ProgressView(value: progress)
-                            .progressViewStyle(.circular)
-                            .controlSize(.large)
-                            .tint(DS.Brand.purple1)
-                    } else {
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(DS.Brand.purple1)
-                    }
-                }
-
-                VStack(spacing: DS.Spacing.xxs) {
-                    Text(progress > 0 ? "Separating Vocals" : "Preparing On-Device Model")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(progress > 0
-                        ? "Pulling vocals away from the instrumental — \(Int(progress * 100))%"
-                        : "This runs entirely on your device, no upload needed")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .padding(DS.Spacing.xxxl)
-            .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
-            .padding(.horizontal, DS.Spacing.xl)
-        }
     }
 
     // MARK: - Effects sheet
@@ -271,6 +205,9 @@ struct EditorView: View {
                     .padding(.vertical, 20)
                 }
                 .scrollIndicators(.hidden)
+                // Grouped background so the flat white tiles read as cards — on the
+                // sheet's default plain background they'd disappear in light mode.
+                .background(Color(.systemGroupedBackground))
                 .navigationTitle(track.effectsApplicable ? "\(track.name) Effects" : track.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -293,20 +230,9 @@ struct EditorView: View {
     // MARK: - Background
 
     private var background: some View {
-        ZStack {
-            Color(.systemBackground)
-            // A whisper of the brand purples over the system background. Much
-            // lighter in light mode — the deep-purple radials were tuned for dark
-            // backgrounds and read as smudges over white.
-            RadialGradient(
-                colors: [DS.Brand.purple2.opacity(colorScheme == .dark ? 0.30 : 0.10), .clear],
-                center: .topLeading, startRadius: 0, endRadius: 420
-            )
-            RadialGradient(
-                colors: [DS.Brand.purple1.opacity(colorScheme == .dark ? 0.20 : 0.08), .clear],
-                center: .bottomTrailing, startRadius: 0, endRadius: 320
-            )
-        }
-        .ignoresSafeArea()
+        // Flat system background — the editor's chrome (transport card, timeline
+        // grid) provides the structure; the canvas itself stays quiet.
+        Color(.systemGroupedBackground)
+            .ignoresSafeArea()
     }
 }

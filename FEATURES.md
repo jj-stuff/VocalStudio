@@ -6,9 +6,11 @@ not roadmap. Where something looks functional but isn't wired to anything real, 
 called out explicitly so design doesn't build around a stub.
 
 **Naming note**: the Xcode project/bundle is still "Vocal Studio" — that hasn't
-changed. The in-app brand shown to users (logo, wordmark, color palette) is now
-**"Aria"**, the cool-purple direction from the brand exploration. Don't be surprised
-seeing both names; they refer to the same app at different layers.
+changed. The in-app brand shown to users is **"Aria"**. The visual direction is a
+clean, light-first, near-monochrome look (in the spirit of ElevenLabs' iOS app):
+system backgrounds, white cards, black-on-white controls, color reserved for
+content (project orbs, clips) and for two deliberate accents — red for
+record/mute, lavender for the on-device AI separation feature.
 
 ## Core concept
 
@@ -25,11 +27,11 @@ bottom of the screen:
 - **Projects** (`music.note.list`) — the project list. The app's home.
 - **Settings** (`gearshape.fill`) — currently a placeholder screen ("App preferences
   and account," no actual settings exist yet).
-- **Record button (center "donut")** — not a tab. A circle with a punched-out center,
-  visually bigger than the bar and sitting slightly above it. Tapping it immediately
-  creates a new project (auto-named, silent placeholder source) and opens the editor
-  with recording already running — the "sing first, sort it out later" path. No
-  backing track is required to use this.
+- **Record button** — not a tab. A red ring with a punched-out center sitting
+  beside the pill bar (the action stands apart from navigation). Tapping it
+  immediately creates a new project (auto-named, silent placeholder source) and
+  opens the editor with recording already running — the "sing first, sort it out
+  later" path. No backing track is required to use this.
 
 Tapping a project pushes straight into its editor (no intermediate screen). The
 custom tab bar hides itself whenever a full-screen overlay (import menu, the editor
@@ -37,8 +39,8 @@ itself, etc.) is active.
 
 ## Screen: Projects (list)
 
-**Brand row** (top): the Aria logo mark + wordmark (Instrument Serif, italic),
-project count or a loading spinner trailing.
+**Brand row** (top): a large bold "Aria" title, project count or a loading
+spinner trailing.
 
 **Empty state** (no projects yet): a centered icon, "No Projects Yet," and a single
 "Import Track" button that opens the same import menu as the "+" button.
@@ -53,13 +55,17 @@ respects the current search filter (deletes the right project even when the list
 filtered, not whatever happens to be at that row index).
 
 A floating "+" button (bottom-right, always present once there's at least one
-project) opens an import menu — a bottom sheet-style overlay with two choices:
+project) opens an import menu — a standard bottom sheet with two row choices:
 
 - **From Photos** — picks a video from the Photos library; its audio track is
-  extracted in the background (with a "Converting Video" loading screen) and becomes
-  the project's source.
+  extracted in the background and becomes the project's source.
 - **From Files** — picks an audio or video file from the Files app / any
   file-providing app (iCloud Drive, third-party storage apps, etc.).
+
+**Imports never block the screen.** While a file is copying/converting, it appears
+as a live, non-tappable row at the top of the list with a spinner ("Extracting
+audio…"); the rest of the app stays fully usable, and several imports can run at
+once. The row swaps in place for the real project card when it finishes.
 
 **Naming**: the user is never asked to name a project up front — that prompt was
 removed as unnecessary friction. A project is created and named automatically the
@@ -140,9 +146,10 @@ the single source track with two. Runs entirely on-device (a bundled ML model, n
 network call). Button states:
 
 - **Idle**: "Separate" (capsule button).
-- **Running**: an inline progress bar in the transport bar, *and* a full-screen
-  overlay distinguishing "Preparing the model" (first few seconds, one-time per
-  session) from "Separating vocals — N%" (the actual processing).
+- **Running**: inline in the transport bar — an indeterminate spinner with
+  "Preparing model…" while the ~100MB model loads (one-time per session), then a
+  determinate bar with a live percentage. Nothing blocks; the editor stays fully
+  usable during separation.
 - **Done**: "Separated" (no longer tappable — a project only gets split once;
   re-opening the editor remembers that it already happened).
 - **Failed**: "Retry" (capsule button, same spot).
