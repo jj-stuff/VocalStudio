@@ -40,7 +40,7 @@ struct TrackHeaderView: View {
                         .minimumScaleFactor(0.75)
                         .frame(maxWidth: 58)
                 }
-                .padding(.top, 4)
+                .padding(.top, DS.Spacing.sm)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
             }
@@ -59,7 +59,7 @@ struct TrackHeaderView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(track.isMuted ? "Unmute \(track.name)" : "Mute \(track.name)")
-            .padding(.bottom, 4)
+            .padding(.bottom, DS.Spacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -102,7 +102,7 @@ struct TrackClipAreaView: View {
                         .frame(height: 0.5)
                 }
 
-            // Clips
+            // Clips — inset vertically so they don't touch the lane separators.
             ForEach(track.clips) { clip in
                 ClipView(
                     clip: clip,
@@ -117,6 +117,7 @@ struct TrackClipAreaView: View {
                     },
                     onDelete: { onDeleteClip(clip.id) }
                 )
+                .padding(.vertical, DS.Spacing.xs)
             }
         }
         .frame(width: totalWidth)

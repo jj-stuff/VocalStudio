@@ -33,9 +33,10 @@ struct EditorView: View {
                 TransportBarView(
                     currentTime: viewModel.currentTime,
                     duration: viewModel.duration,
-                    isPlaying: viewModel.isPlaying,
+                    isPlaying: viewModel.transportActive,
                     isRecording: viewModel.isRecording,
                     stemStatus: viewModel.stemStatus,
+                    showsSeparate: viewModel.canSeparateStems,
                     onTogglePlayback: viewModel.togglePlayback,
                     onRewind: viewModel.rewind,
                     onToggleRecord: viewModel.toggleRecording,
@@ -49,6 +50,7 @@ struct EditorView: View {
                     tracks: viewModel.tracks,
                     currentTime: viewModel.currentTime,
                     duration: viewModel.duration,
+                    recordingRange: viewModel.recordingRange,
                     selectedTrackID: viewModel.selectedTrackID,
                     onSelectTrack: viewModel.selectTrack,
                     onMuteTrack: viewModel.toggleMute,
@@ -115,9 +117,7 @@ struct EditorView: View {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation(DS.Animation.spring) { showingRename = false }
-                }
+                .onTapGesture(perform: dismissRename)
 
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
@@ -141,9 +141,7 @@ struct EditorView: View {
                     .onSubmit(commitRename)
 
                 HStack(spacing: DS.Spacing.sm) {
-                    Button("Cancel") {
-                        withAnimation(DS.Animation.spring) { showingRename = false }
-                    }
+                    Button("Cancel", action: dismissRename)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -174,6 +172,14 @@ struct EditorView: View {
 
     private func commitRename() {
         viewModel.renameProject(to: pendingTitle)
+        dismissRename()
+    }
+
+    /// Every dismissal path drops field focus FIRST, so the keyboard animates down
+    /// on its own — removing the overlay while the field is still focused yanks the
+    /// keyboard away with no animation.
+    private func dismissRename() {
+        renameFieldFocused = false
         withAnimation(DS.Animation.spring) { showingRename = false }
     }
 

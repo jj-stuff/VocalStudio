@@ -162,8 +162,16 @@ real-time.
 Tapping Record starts capturing immediately (after the standard one-time
 microphone-permission prompt). Recording and playback can happen at the same time —
 sing over the backing track while it plays through the speaker, or record solo with
-nothing else playing. Stopping a recording adds it to the timeline immediately as a
-new, editable take (see trim/move above).
+nothing else playing. While recording, a live "Recording" lane (red, pulsing header)
+grows along the timeline so the take is visible before it's finished. The transport
+play/pause button pauses and resumes the capture together with playback, so the
+playhead and the recorded audio always stay matched; rewind/scrub are disabled
+during recording since the take's position is fixed at its start. Stopping a
+recording swaps the live lane for the finished, editable take (see trim/move above).
+
+Instant-record projects (started from the red record button) have no real source
+audio — the silent placeholder is hidden rather than shown as a fake clip, and the
+Separate button doesn't appear for them.
 
 ## Screen: Settings
 

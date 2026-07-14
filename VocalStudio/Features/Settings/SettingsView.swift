@@ -36,7 +36,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, DS.Spacing.md + DS.Spacing.xs)
                 .padding(.top, DS.Spacing.sm)
-                .padding(.bottom, DS.Size.tabBarH + DS.Spacing.xl)
+                .padding(.bottom, DS.Size.tabBarVisualH + DS.Spacing.xl)
             }
             .scrollIndicators(.hidden)
 

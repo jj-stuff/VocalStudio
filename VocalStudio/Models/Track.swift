@@ -54,14 +54,18 @@ struct Track: Identifiable {
         var tracks: [Track] = []
 
         if project.stems.isEmpty {
-            // No stem separation yet — single source track
-            let clip = AudioClip(url: project.sourceURL, timelineOffset: 0)
-            tracks.append(Track(
-                id: UUID(),
-                name: "Source",
-                kind: .instrumental,
-                clips: [clip]
-            ))
+            // No stem separation yet — single source track. Instant-record projects
+            // have only a generated silent placeholder as their source; showing that
+            // as a track put a fake 1-second clip on screen for no reason.
+            if !project.hasSilentPlaceholderSource {
+                let clip = AudioClip(url: project.sourceURL, timelineOffset: 0)
+                tracks.append(Track(
+                    id: UUID(),
+                    name: "Source",
+                    kind: .instrumental,
+                    clips: [clip]
+                ))
+            }
         } else {
             for stem in project.stems {
                 let clip = AudioClip(url: stem.url, timelineOffset: 0)

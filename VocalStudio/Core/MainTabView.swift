@@ -20,7 +20,8 @@ struct MainTabView: View {
         ZStack(alignment: .bottom) {
             tabContent
                 .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: DS.Size.tabBarH + DS.Spacing.sm)
+                    // Clears the bar's full rendered height plus its bottom margin.
+                    Color.clear.frame(height: DS.Size.tabBarVisualH + DS.Spacing.xl)
                 }
                 .onPreferenceChange(TabBarHiddenKey.self) { tabBarHidden = $0 }
 

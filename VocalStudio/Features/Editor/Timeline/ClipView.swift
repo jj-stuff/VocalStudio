@@ -27,6 +27,16 @@ struct ClipView: View {
         max(4, clip.trimmedDuration * pixelsPerSecond - leadingTrimDeltaPx - trailingTrimDeltaPx)
     }
 
+    // Clip fills come from a fixed set of DARK, saturated pairs — every one has
+    // enough contrast that the white waveform bars can never blend in (the old
+    // recording gradient used a light lavender that washed the bars out).
+    private static let recordingPalette: [(top: Color, bottom: Color)] = [
+        (Color(red: 0.30, green: 0.10, blue: 0.50), Color(red: 0.20, green: 0.06, blue: 0.36)),  // deep violet
+        (Color(red: 0.55, green: 0.12, blue: 0.30), Color(red: 0.40, green: 0.08, blue: 0.22)),  // deep rose
+        (Color(red: 0.05, green: 0.33, blue: 0.36), Color(red: 0.03, green: 0.23, blue: 0.26)),  // deep teal
+        (Color(red: 0.12, green: 0.22, blue: 0.52), Color(red: 0.08, green: 0.15, blue: 0.38)),  // deep indigo
+    ]
+
     private var clipColor: LinearGradient {
         switch trackKind {
         case .instrumental:
@@ -42,8 +52,14 @@ struct ClipView: View {
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
         case .userRecording:
+            // Stable per-clip pick — UUID bytes, not hashValue, which is
+            // re-seeded every launch and would recolor clips on each app start.
+            let bytes = clip.id.uuid
+            let folded = [bytes.0, bytes.1, bytes.2, bytes.3]
+                .reduce(0) { ($0 &* 31) &+ Int($1) }
+            let pair = Self.recordingPalette[abs(folded) % Self.recordingPalette.count]
             return LinearGradient(
-                colors: [DS.Brand.purple1.opacity(0.8), DS.Brand.pink.opacity(0.6)],
+                colors: [pair.top, pair.bottom],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
         }
