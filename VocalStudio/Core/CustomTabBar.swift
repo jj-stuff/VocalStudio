@@ -14,7 +14,7 @@ enum AppTab: String, CaseIterable {
     // Display logic lives on the model, not in the view body.
     func iconWeight(isSelected: Bool) -> Font.Weight { isSelected ? .semibold : .regular }
     func itemColor(isSelected: Bool) -> Color {
-        isSelected ? DS.Brand.purple1 : Color(.secondaryLabel)
+        isSelected ? .primary : Color(.secondaryLabel)
     }
 }
 
@@ -24,14 +24,15 @@ struct CustomTabBar: View {
 
     @Namespace private var tabSelection
 
-    private static let donutSize: CGFloat = DS.Size.tabBarH + 12
+    private static let recordSize: CGFloat = DS.Size.tabBarH + 4
 
     var body: some View {
-        ZStack {
+        // Pill bar with the tabs, plus a separate circular record button beside it —
+        // the action stands apart from navigation instead of being wedged into the
+        // middle of the bar.
+        HStack(spacing: DS.Spacing.sm) {
             HStack(spacing: 0) {
                 tabItem(.projects)
-                // Reserves the center column so the two real tabs don't crowd the donut.
-                Color.clear.frame(width: Self.donutSize - DS.Spacing.md)
                 tabItem(.settings)
             }
             // Explicit height (not .fixedSize) — pins the bar so the matchedGeometryEffect
@@ -41,11 +42,10 @@ struct CustomTabBar: View {
             .padding(.horizontal, DS.Spacing.xxs)
             .padding(.vertical, DS.Spacing.xxs)
             .glassEffect(in: .capsule)
-            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
+            .overlay(Capsule().stroke(Color(.separator), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
 
             instantRecordButton
-                .offset(y: -10)
         }
         .padding(.horizontal, DS.Spacing.xl)
         .padding(.bottom, DS.Spacing.xl)
@@ -79,7 +79,7 @@ struct CustomTabBar: View {
             .background {
                 if isSelected {
                     Capsule()
-                        .fill(DS.Brand.purple1.opacity(0.16))
+                        .fill(Color.primary.opacity(0.08))
                         .matchedGeometryEffect(id: "selectedTabPill", in: tabSelection)
                 }
             }
@@ -92,29 +92,24 @@ struct CustomTabBar: View {
         .accessibilityLabel(tab.rawValue)
     }
 
-    // MARK: - Instant record (donut)
+    // MARK: - Instant record
     //
-    // Not a tab — doesn't touch `selectedTab`. A circle with a punched-out center,
-    // centered on the bar and slightly taller than it, that immediately creates a
-    // project and starts recording (see MainTabView.startInstantRecord).
+    // Not a tab — doesn't touch `selectedTab`. A red ring with a punched-out center
+    // (the system record affordance) that immediately creates a project and starts
+    // recording (see MainTabView.startInstantRecord).
 
     private var instantRecordButton: some View {
         Button(action: onInstantRecord) {
             ZStack {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [DS.Brand.pink, DS.Brand.purple1],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Color.red)
                 Circle()
                     .fill(Color(.systemBackground))
-                    .frame(width: Self.donutSize * 0.42, height: Self.donutSize * 0.42)
+                    .frame(width: Self.recordSize * 0.42, height: Self.recordSize * 0.42)
             }
-            .frame(width: Self.donutSize, height: Self.donutSize)
-            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
-            .shadow(color: DS.Brand.purple1.opacity(0.4), radius: 16, y: 6)
+            .frame(width: Self.recordSize, height: Self.recordSize)
+            .overlay(Circle().stroke(Color(.separator), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.15), radius: 14, y: 6)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Record now")

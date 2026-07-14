@@ -22,26 +22,24 @@ struct VolumeTileView: View {
             slider
         }
         .padding(20)
-        .background(tileBackground)
-        .clipShape(.rect(cornerRadius: 24))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.tile))
     }
 
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("VOLUME")
-                    .font(.caption.weight(.black))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                     .tracking(2)
                 Text("Track Level")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
             Spacer()
             Text("\(Int(sliderValue * 100))%")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.white)
-                .fontDesign(.monospaced)
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
         }
     }
 
@@ -51,7 +49,7 @@ struct VolumeTileView: View {
                 let threshold = Double(i) / 16
                 let isLit = threshold <= sliderValue
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(isLit ? barColor(at: i) : Color.white.opacity(0.08))
+                    .fill(isLit ? barColor(at: i) : Color(.tertiarySystemFill))
                     .frame(height: 6 + CGFloat(i) * 1.6)
                     .animation(.spring(duration: 0.3), value: sliderValue)
             }
@@ -60,29 +58,14 @@ struct VolumeTileView: View {
     }
 
     private func barColor(at index: Int) -> Color {
-        index > 12 ? Color(red: 1.0, green: 0.55, blue: 0.2) : Color(red: 0.35, green: 0.65, blue: 1.0)
+        // Monochrome meter; only the overdrive range (>100%) warns in red.
+        index > 12 ? .red : .primary
     }
 
     private var slider: some View {
         Slider(value: $sliderValue, in: 0...1.5)
-            .tint(Color(red: 0.35, green: 0.65, blue: 1.0))
+            .tint(.primary)
             .onChange(of: sliderValue) { onVolumeChange(Float(sliderValue)) }
             .accessibilityLabel("Track volume")
-    }
-
-    private var tileBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.09, blue: 0.2), Color(red: 0.06, green: 0.12, blue: 0.26)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            RadialGradient(
-                colors: [Color(red: 0.3, green: 0.55, blue: 1.0).opacity(0.3), .clear],
-                center: .topTrailing,
-                startRadius: 0,
-                endRadius: 200
-            )
-        }
     }
 }
