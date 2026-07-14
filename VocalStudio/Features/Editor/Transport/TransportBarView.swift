@@ -3,9 +3,14 @@ import SwiftUI
 struct TransportBarView: View {
     let currentTime: TimeInterval
     let duration: TimeInterval
+    /// True while the transport is running — playback, or an actively-capturing
+    /// recording (a paused recording shows the play icon again).
     let isPlaying: Bool
     let isRecording: Bool
     let stemStatus: StemSeparationStatus
+    /// Hidden for instant-record projects — their silent placeholder source has
+    /// nothing to separate.
+    let showsSeparate: Bool
     let onTogglePlayback: () -> Void
     let onRewind: () -> Void
     let onToggleRecord: () -> Void
@@ -16,7 +21,9 @@ struct TransportBarView: View {
             HStack {
                 timeDisplay
                 Spacer()
-                separateButton
+                if showsSeparate {
+                    separateButton
+                }
             }
 
             HStack(spacing: 32) {
@@ -128,12 +135,12 @@ struct TransportBarView: View {
                 .accessibilityLabel("Separate vocals from instrumental")
 
             case .running(let p):
-                // This is the only progress surface now (no blocking overlay), so it
-                // has to carry the state by itself: indeterminate while the ~100MB
-                // model loads, then a determinate bar with a live percentage. The
-                // editor stays fully usable the whole time.
-                VStack(alignment: .leading, spacing: 3) {
-                    if p > 0 {
+                // This is the only progress surface (no blocking overlay), so it
+                // has to carry the state by itself: spinner + label on one line
+                // while the ~100MB model loads, then a determinate bar with a live
+                // percentage. The editor stays fully usable the whole time.
+                if p > 0 {
+                    VStack(alignment: .leading, spacing: 3) {
                         ProgressView(value: p)
                             .progressViewStyle(.linear)
                             .tint(DS.Brand.purple1)
@@ -141,11 +148,13 @@ struct TransportBarView: View {
                         Text("Separating… \(Int(p * 100))%")
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.secondary)
-                    } else {
+                    }
+                } else {
+                    HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Preparing model…")
-                            .font(.system(size: 10))
+                        Text("Preparing…")
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
