@@ -1,12 +1,24 @@
 import AVFoundation
 import Foundation
 import Observation
+import PhotosUI
+import SwiftUI
 
 @Observable
 final class ProjectListViewModel {
+
+    /// An import that is still converting/copying. Rendered as a live, disabled row
+    /// in the project list — per the HIG, long-running work shows progress in place
+    /// instead of blocking the whole screen behind an overlay. The list stays fully
+    /// usable while these run, and several can run at once.
+    struct PendingImport: Identifiable, Equatable {
+        let id = UUID()
+        let detail: String
+    }
+
     private(set) var projects: [Project] = []
+    private(set) var pendingImports: [PendingImport] = []
     private(set) var isLoading = false
-    private(set) var isConvertingVideo = false
     var errorMessage: String?
 
     private let store: ProjectStoreInterface
@@ -30,21 +42,23 @@ final class ProjectListViewModel {
         }
     }
 
-    /// Single entry point for all file-based imports. Internally detects video vs audio.
+    /// Import from a file URL (Files picker). Detects video vs audio internally.
     func createProject(title: String, from url: URL) async {
         let isVideo = Self.videoExtensions.contains(url.pathExtension.lowercased())
-        if isVideo { isConvertingVideo = true }
-        defer { isConvertingVideo = false }
-        do {
-            let localURL = try await (isVideo ? importVideoAsAudio(from: url) : importAudio(from: url))
-            let name = title.isEmpty ? CatBreedNamer.randomName(avoiding: projects.map(\.title)) : title
-            let project = Project(title: name, sourceURL: localURL)
-            try await store.save(project)
-            projects.append(project)
-        } catch is CancellationError {
-            // ignore
-        } catch {
-            errorMessage = error.localizedDescription
+        await runImport(detail: isVideo ? "Extracting audio…" : "Importing audio…", title: title) {
+            try await (isVideo ? self.importVideoAsAudio(from: url) : self.importAudio(from: url))
+        }
+    }
+
+    /// Import from a Photos picker item (always a video — the picker filter says so).
+    /// The transfer out of the Photos library is itself slow for big videos, so the
+    /// pending row appears before it starts, not just for the conversion step.
+    func importPhotoItem(_ item: PhotosPickerItem) async {
+        await runImport(detail: "Extracting audio…", title: "") {
+            guard let video = try await item.loadTransferable(type: VideoTransferable.self) else {
+                throw ImportError.photoLoadFailed
+            }
+            return try await self.importVideoAsAudio(from: video.url)
         }
     }
 
@@ -60,6 +74,25 @@ final class ProjectListViewModel {
             }
         }
         projects.removeAll { ids.contains($0.id) }
+    }
+
+    // MARK: - Shared import pipeline
+
+    private func runImport(detail: String, title: String, _ produceLocalURL: () async throws -> URL) async {
+        let pending = PendingImport(detail: detail)
+        pendingImports.append(pending)
+        defer { pendingImports.removeAll { $0.id == pending.id } }
+        do {
+            let localURL = try await produceLocalURL()
+            let name = title.isEmpty ? CatBreedNamer.randomName(avoiding: projects.map(\.title)) : title
+            let project = Project(title: name, sourceURL: localURL)
+            try await store.save(project)
+            projects.append(project)
+        } catch is CancellationError {
+            // ignore
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Audio import
@@ -97,11 +130,26 @@ final class ProjectListViewModel {
             let dest = audioDir.appending(path: filename)
 
             guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-                throw NSError(domain: "VocalStudio", code: 0,
-                              userInfo: [NSLocalizedDescriptionKey: "Cannot create export session"])
+                throw ImportError.exportSessionUnavailable
             }
             try await session.export(to: dest, as: .m4a)
             return dest
         }.value
+    }
+}
+
+// MARK: - Errors
+
+enum ImportError: LocalizedError {
+    case photoLoadFailed
+    case exportSessionUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .photoLoadFailed:
+            return "Could not load the selected video."
+        case .exportSessionUnavailable:
+            return "Could not read audio from that video."
+        }
     }
 }

@@ -58,7 +58,10 @@ struct MainTabView: View {
         selectedTab = .projects
         Task {
             guard let sourceURL = try? SilentAudioFile.make() else { return }
-            let project = Project(title: CatBreedNamer.randomName(avoiding: []), sourceURL: sourceURL)
+            // Load current titles so the collision-avoiding suffix actually has
+            // something to avoid — passing [] here handed out duplicate names.
+            let existingTitles = ((try? await store.loadAll()) ?? []).map(\.title)
+            let project = Project(title: CatBreedNamer.randomName(avoiding: existingTitles), sourceURL: sourceURL)
             try? await store.save(project)
             instantRecordProject = project
         }

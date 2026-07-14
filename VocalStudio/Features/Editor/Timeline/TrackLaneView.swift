@@ -18,24 +18,24 @@ struct TrackHeaderView: View {
                 VStack(spacing: 3) {
                     Image(systemName: track.kind.displayIcon)
                         .font(.system(size: 14))
-                        .foregroundStyle(isSelected ? .white : .secondary)
+                        .foregroundStyle(isSelected ? Color(.systemBackground) : Color(.secondaryLabel))
                         .frame(width: 30, height: 30)
                         .background(
-                            isSelected ? DS.Brand.purple1 : Color(.systemFill),
+                            isSelected ? Color.primary : Color(.systemFill),
                             in: Circle()
                         )
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 6, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color(.systemBackground))
                                 .frame(width: 12, height: 12)
-                                .background(DS.Brand.pink, in: Circle())
+                                .background(Color.primary, in: Circle())
                                 .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 1.5))
                         }
 
                     Text(track.name)
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(isSelected ? DS.Brand.purple1 : .secondary)
+                        .foregroundStyle(isSelected ? .primary : .secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .frame(maxWidth: 58)
@@ -53,7 +53,7 @@ struct TrackHeaderView: View {
             Button(action: onMute) {
                 Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.1.fill")
                     .font(.system(size: 15))
-                    .foregroundStyle(track.isMuted ? DS.Brand.pink : Color.secondary)
+                    .foregroundStyle(track.isMuted ? Color.red : Color.secondary)
                     .frame(width: 44, height: 30)
                     .contentShape(Rectangle())
             }
@@ -63,7 +63,7 @@ struct TrackHeaderView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            isSelected ? DS.Brand.purple1.opacity(0.12) : Color(.systemFill).opacity(0.5),
+            isSelected ? Color.primary.opacity(0.08) : Color(.systemFill).opacity(0.5),
             // Leading corners only — the trailing edge stays flush against the
             // scrollable clip area, so each row reads as a tab sticking out from
             // the timeline grid rather than a fully separate floating card.
@@ -72,9 +72,10 @@ struct TrackHeaderView: View {
                 bottomTrailingRadius: 0, topTrailingRadius: 0
             )
         )
+        .animation(DS.Animation.smooth, value: isSelected)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(.white.opacity(0.06))
+                .fill(Color(.separator))
                 .frame(width: 0.5)
         }
     }
@@ -97,7 +98,7 @@ struct TrackClipAreaView: View {
             Color(.systemBackground).opacity(0.04)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(.white.opacity(0.05))
+                        .fill(Color(.separator).opacity(0.6))
                         .frame(height: 0.5)
                 }
 

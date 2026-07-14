@@ -5,6 +5,14 @@ struct EditorView: View {
 
     @State private var showingRename = false
     @State private var pendingTitle = ""
+    @FocusState private var renameFieldFocused: Bool
+
+    private var showErrorAlert: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { showing in if !showing { viewModel.errorMessage = nil } }
+        )
+    }
 
     // Bridges the track-selection state into a sheet-presented Bool. Every track kind
     // gets a sheet now (volume applies to all of them) — only the effects tiles inside
@@ -58,11 +66,6 @@ struct EditorView: View {
                 .frame(maxHeight: .infinity)
             }
 
-            if case .running(let progress) = viewModel.stemStatus {
-                separationOverlay(progress: progress)
-                    .transition(.opacity)
-            }
-
             if showingRename {
                 renameOverlay
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -84,9 +87,18 @@ struct EditorView: View {
         }
         .preference(key: TabBarHiddenKey.self, value: true)
         .animation(DS.Animation.spring, value: viewModel.stemStatus)
+        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isRecording)
+        .sensoryFeedback(.selection, trigger: viewModel.selectedTrackID)
+        .sensoryFeedback(trigger: viewModel.stemStatus) { _, newStatus in
+            switch newStatus {
+            case .done: .success
+            case .failed: .error
+            default: nil
+            }
+        }
         .task { await viewModel.start() }
         .onDisappear { viewModel.tearDown() }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: showErrorAlert) {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
@@ -125,6 +137,7 @@ struct EditorView: View {
                     .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: DS.Radius.md))
                     .autocorrectionDisabled()
                     .submitLabel(.done)
+                    .focused($renameFieldFocused)
                     .onSubmit(commitRename)
 
                 HStack(spacing: DS.Spacing.sm) {
@@ -141,16 +154,10 @@ struct EditorView: View {
                     Button(action: commitRename) {
                         Text("Save")
                             .font(.body.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(.systemBackground))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, DS.Spacing.sm + DS.Spacing.xxs)
-                            .background(
-                                LinearGradient(
-                                    colors: [DS.Brand.purple1, DS.Brand.purple2],
-                                    startPoint: .leading, endPoint: .trailing
-                                ),
-                                in: .capsule
-                            )
+                            .background(Color.primary, in: .capsule)
                     }
                     .buttonStyle(.plain)
                 }
@@ -160,65 +167,14 @@ struct EditorView: View {
             .padding(.horizontal, DS.Spacing.lg)
         }
         .ignoresSafeArea(.container)
+        // Renaming is a one-field flow — bring the keyboard up with the card
+        // instead of demanding an extra tap into the field.
+        .onAppear { renameFieldFocused = true }
     }
 
     private func commitRename() {
         viewModel.renameProject(to: pendingTitle)
         withAnimation(DS.Animation.spring) { showingRename = false }
-    }
-
-    // MARK: - Separation overlay
-    //
-    // The model is bundled in the app, not downloaded — but loading an ~100MB Core ML
-    // graph the first time still takes a few real seconds, and the old inline progress
-    // bar in the transport bar was too small to explain that. This makes the two
-    // phases (loading the model vs. actually processing audio) legible without being
-    // technical about either one.
-
-    private func separationOverlay(progress: Double) -> some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            VStack(spacing: DS.Spacing.xl) {
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(
-                            colors: [DS.Brand.purple1.opacity(0.6), DS.Brand.purple2.opacity(0.4)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 72, height: 72)
-                        .blur(radius: 22)
-
-                    if progress > 0 {
-                        ProgressView(value: progress)
-                            .progressViewStyle(.circular)
-                            .controlSize(.large)
-                            .tint(DS.Brand.purple1)
-                    } else {
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(DS.Brand.purple1)
-                    }
-                }
-
-                VStack(spacing: DS.Spacing.xxs) {
-                    Text(progress > 0 ? "Separating Vocals" : "Preparing On-Device Model")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(progress > 0
-                        ? "Pulling vocals away from the instrumental — \(Int(progress * 100))%"
-                        : "This runs entirely on your device, no upload needed")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .padding(DS.Spacing.xxxl)
-            .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
-            .padding(.horizontal, DS.Spacing.xl)
-        }
     }
 
     // MARK: - Effects sheet
@@ -249,6 +205,9 @@ struct EditorView: View {
                     .padding(.vertical, 20)
                 }
                 .scrollIndicators(.hidden)
+                // Grouped background so the flat white tiles read as cards — on the
+                // sheet's default plain background they'd disappear in light mode.
+                .background(Color(.systemGroupedBackground))
                 .navigationTitle(track.effectsApplicable ? "\(track.name) Effects" : track.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -260,23 +219,20 @@ struct EditorView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            // Background interaction means a different track header can be tapped
+            // while this sheet stays up. The tiles copy their initial values into
+            // @State, so without re-identifying the whole sheet per track, the old
+            // track's volume/EQ values would be shown — and applied — to the new one.
+            .id(track.id)
         }
     }
 
     // MARK: - Background
 
     private var background: some View {
-        ZStack {
-            Color(.systemBackground)
-            RadialGradient(
-                colors: [Color(red: 0.18, green: 0.06, blue: 0.38).opacity(0.30), .clear],
-                center: .topLeading, startRadius: 0, endRadius: 420
-            )
-            RadialGradient(
-                colors: [Color(red: 0.08, green: 0.04, blue: 0.24).opacity(0.20), .clear],
-                center: .bottomTrailing, startRadius: 0, endRadius: 320
-            )
-        }
-        .ignoresSafeArea()
+        // Flat system background — the editor's chrome (transport card, timeline
+        // grid) provides the structure; the canvas itself stays quiet.
+        Color(.systemGroupedBackground)
+            .ignoresSafeArea()
     }
 }

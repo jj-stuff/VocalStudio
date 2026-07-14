@@ -3,96 +3,43 @@ import SwiftUI
 struct ProjectCard: View {
     let project: Project
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        HStack(spacing: DS.Spacing.sm + DS.Spacing.xxs) {
+        HStack(spacing: DS.Spacing.md) {
             thumbnail
             info
             trailingMeta
         }
-        .padding(DS.Spacing.sm - 1)
-        .background(glassCard)
-        .clipShape(.rect(cornerRadius: DS.Radius.card))
-        .overlay(cardBorder)
-        .shadow(
-            color: scheme.r1.opacity(colorScheme == .dark ? 0.15 : 0.20),
-            radius: DS.Spacing.xl, x: 0, y: DS.Spacing.xs
-        )
+        .padding(DS.Spacing.sm)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.card))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(project.title), \(project.relativeAge)")
     }
 
-    // MARK: - Liquid glass card background
-
-    @ViewBuilder
-    private var glassCard: some View {
-        ZStack {
-            // Glass base
-            Color.clear
-                .background(.ultraThinMaterial)
-
-            // Gradient tint from card's color scheme — the key liquid glass effect
-            LinearGradient(
-                colors: [
-                    scheme.r1.opacity(colorScheme == .dark ? 0.18 : 0.12),
-                    scheme.r2.opacity(colorScheme == .dark ? 0.12 : 0.07)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            // Specular highlight — top strip
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(colorScheme == .dark ? 0.07 : 0.55),
-                    Color.clear
-                ],
-                startPoint: .top,
-                endPoint: UnitPoint(x: 0.5, y: 0.35)
-            )
-        }
-    }
-
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: DS.Radius.card)
-            .stroke(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(colorScheme == .dark ? 0.18 : 0.80),
-                        scheme.r1.opacity(colorScheme == .dark ? 0.20 : 0.15)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.8
-            )
-    }
-
     // MARK: - Thumbnail
+    //
+    // A colorful gradient orb, one hue family per project (picked from the ID, so
+    // it's stable). The chrome around it stays monochrome — like voice avatars,
+    // the orb is the only place color appears in a row.
 
     private var thumbnail: some View {
         ZStack {
-            thumbnailBackground
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [scheme.light, scheme.dark],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.white.opacity(0.55), .clear],
+                        center: UnitPoint(x: 0.3, y: 0.25), startRadius: 0, endRadius: 30
+                    )
+                )
             miniBars
         }
         .frame(width: DS.Size.thumbnail, height: DS.Size.thumbnail)
-        .clipShape(.rect(cornerRadius: DS.Size.thumbRadius))
-    }
-
-    private var thumbnailBackground: some View {
-        let s = scheme
-        return ZStack {
-            LinearGradient(colors: [s.bg1, s.bg2], startPoint: .topLeading, endPoint: .bottomTrailing)
-            RadialGradient(
-                colors: [s.r1.opacity(0.85), .clear],
-                center: UnitPoint(x: 0.18, y: 0.16), startRadius: 0, endRadius: 40
-            )
-            RadialGradient(
-                colors: [s.r2.opacity(0.70), .clear],
-                center: UnitPoint(x: 0.86, y: 0.82), startRadius: 0, endRadius: 40
-            )
-        }
     }
 
     private var miniBars: some View {
@@ -115,7 +62,7 @@ struct ProjectCard: View {
                 .lineLimit(1)
 
             Text(project.subtitleText)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,29 +81,39 @@ struct ProjectCard: View {
         }
     }
 
-    // MARK: - Gradient scheme (single consistent brand palette)
+    // MARK: - Orb color scheme (stable per project)
 
-    private struct Scheme { let r1, r2, bg1, bg2: Color }
+    private struct Scheme { let light, dark: Color }
+
+    private static let schemes: [Scheme] = [
+        Scheme(light: Color(red: 0.95, green: 0.60, blue: 0.35), dark: Color(red: 0.75, green: 0.30, blue: 0.15)),  // amber
+        Scheme(light: Color(red: 0.45, green: 0.75, blue: 0.95), dark: Color(red: 0.15, green: 0.40, blue: 0.75)),  // blue
+        Scheme(light: Color(red: 0.75, green: 0.60, blue: 0.95), dark: Color(red: 0.45, green: 0.25, blue: 0.75)),  // violet
+        Scheme(light: Color(red: 0.50, green: 0.85, blue: 0.70), dark: Color(red: 0.15, green: 0.55, blue: 0.45)),  // teal
+        Scheme(light: Color(red: 0.95, green: 0.55, blue: 0.65), dark: Color(red: 0.70, green: 0.20, blue: 0.40)),  // rose
+    ]
 
     private var scheme: Scheme {
-        Scheme(
-            r1: DS.Brand.pink,
-            r2: DS.Brand.purple1,
-            bg1: Color(red: 0.227, green: 0.043, blue: 0.278),
-            bg2: Color(red: 0.357, green: 0.067, blue: 0.439)
-        )
+        Self.schemes[stableHash % Self.schemes.count]
+    }
+
+    /// Swift's Hashable is randomly seeded per launch — using `id.hashValue` here
+    /// would recolor every orb on every app start. Fold the UUID's raw bytes instead.
+    private var stableHash: Int {
+        let bytes = project.id.uuid
+        let folded = [bytes.0, bytes.1, bytes.2, bytes.3, bytes.4, bytes.5, bytes.6, bytes.7]
+            .reduce(0) { ($0 &* 31) &+ Int($1) }
+        return abs(folded)
     }
 
     // MARK: - Bar heights (seeded from project ID)
 
     private var barHeights: [CGFloat] {
-        let hash = abs(project.id.hashValue)
+        let hash = stableHash
         return (0..<5).map { i in
             let seed = CGFloat((hash >> (i * 5)) & 0x1F) / 31
-            let bases: [CGFloat] = [12, 22, 16, 26, 14]
-            return bases[i] + seed * 10
+            let bases: [CGFloat] = [10, 18, 14, 20, 12]
+            return bases[i] + seed * 8
         }
     }
-
-    // Display properties live on Project (the model), not here.
 }

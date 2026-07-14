@@ -270,8 +270,10 @@ actor CoreMLStemSeparator: StemSeparationService {
             throw StemSeparationError.processingFailed
         }
 
+        // Generous margin over the rate-scaled estimate — resamplers can emit a few
+        // extra frames of priming/latency around the exact ratio.
         let ratio = DemucsDSP.sampleRate / sourceFile.processingFormat.sampleRate
-        let estimatedFrames = AVAudioFrameCount(Double(sourceFile.length) * ratio) + 1
+        let estimatedFrames = AVAudioFrameCount(Double(sourceFile.length) * ratio) + 4_096
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: estimatedFrames) else {
             throw StemSeparationError.processingFailed
         }
@@ -287,11 +289,26 @@ actor CoreMLStemSeparator: StemSeparationService {
                 throw StemSeparationError.processingFailed
             }
             try sourceFile.read(into: sourceBuffer)
-            // The whole input is already in memory as one buffer, so the simple
-            // one-shot conversion applies — no need for the closure-based streaming
-            // API, which also sidesteps having to capture a non-Sendable
-            // AVAudioPCMBuffer in an @Sendable closure.
-            try converter.convert(to: outputBuffer, from: sourceBuffer)
+            // The closure-based streaming API is required here, not the one-shot
+            // convert(to:from:) — the one-shot variant explicitly does not support
+            // sample-rate conversion and errors out on it, which broke separation
+            // for every non-44.1kHz source (video soundtracks are typically 48kHz).
+            // The whole input is one in-memory buffer, so the input block hands it
+            // over once and then reports end-of-stream.
+            var inputConsumed = false
+            var conversionError: NSError?
+            let status = converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
+                if inputConsumed {
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+                inputConsumed = true
+                outStatus.pointee = .haveData
+                return sourceBuffer
+            }
+            guard status != .error, conversionError == nil else {
+                throw conversionError ?? StemSeparationError.processingFailed
+            }
         }
 
         let frameCount = Int(outputBuffer.frameLength)

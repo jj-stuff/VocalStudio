@@ -33,7 +33,7 @@ struct TransportBarView: View {
         .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
         .overlay(alignment: .bottom) {
             RoundedRectangle(cornerRadius: DS.Radius.hero)
-                .stroke(.white.opacity(0.08), lineWidth: 0.5)
+                .stroke(Color(.separator).opacity(0.6), lineWidth: 0.5)
         }
     }
 
@@ -41,11 +41,13 @@ struct TransportBarView: View {
 
     private var timeDisplay: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // Monospaced timestamps — the digits don't jitter horizontally as they
+            // tick, and it reads as a player readout rather than body text.
             Text(formatTime(currentTime))
-                .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                .font(.system(.title, design: .monospaced, weight: .semibold))
                 .foregroundStyle(.primary)
             Text(formatTime(duration))
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -67,10 +69,12 @@ struct TransportBarView: View {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(.primary)
+                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 64, height: 64)
                 .glassEffect(in: Circle())
         }
         .buttonStyle(.plain)
+        .animation(DS.Animation.smooth, value: isPlaying)
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
     }
 
@@ -80,19 +84,17 @@ struct TransportBarView: View {
                 Circle()
                     .fill(isRecording ? Color.red : Color.red.opacity(0.15))
                     .frame(width: 40, height: 40)
-                if isRecording {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.white)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 16, height: 16)
-                }
+                // One shape morphing circle ⇄ square (the Camera/Voice Memos record
+                // affordance) instead of swapping two views, so the corner radius
+                // and color animate as a single continuous gesture.
+                RoundedRectangle(cornerRadius: isRecording ? 4 : 8)
+                    .fill(isRecording ? Color.white : Color.red)
+                    .frame(width: 16, height: 16)
             }
             .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
+        .animation(DS.Animation.spring, value: isRecording)
         .accessibilityLabel(isRecording ? "Stop recording" : "Start recording")
     }
 
@@ -126,14 +128,26 @@ struct TransportBarView: View {
                 .accessibilityLabel("Separate vocals from instrumental")
 
             case .running(let p):
-                VStack(spacing: 3) {
-                    ProgressView(value: p)
-                        .progressViewStyle(.linear)
-                        .tint(DS.Brand.purple1)
-                        .frame(width: 72)
-                    Text("Separating…")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                // This is the only progress surface now (no blocking overlay), so it
+                // has to carry the state by itself: indeterminate while the ~100MB
+                // model loads, then a determinate bar with a live percentage. The
+                // editor stays fully usable the whole time.
+                VStack(alignment: .leading, spacing: 3) {
+                    if p > 0 {
+                        ProgressView(value: p)
+                            .progressViewStyle(.linear)
+                            .tint(DS.Brand.purple1)
+                            .frame(width: 88)
+                        Text("Separating… \(Int(p * 100))%")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Preparing model…")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
             case .done:

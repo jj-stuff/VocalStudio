@@ -31,7 +31,7 @@ struct RulerView: View {
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: size.height - tickH))
                 path.addLine(to: CGPoint(x: x, y: size.height))
-                ctx.stroke(path, with: .color(.white.opacity(isMajor ? 0.4 : 0.2)), lineWidth: isMajor ? 1 : 0.5)
+                ctx.stroke(path, with: .color(.secondary.opacity(isMajor ? 0.8 : 0.4)), lineWidth: isMajor ? 1 : 0.5)
 
                 // Label on major ticks only
                 if isMajor {
@@ -39,7 +39,7 @@ struct RulerView: View {
                     ctx.draw(
                         Text(label)
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.5)),
+                            .foregroundStyle(.secondary),
                         at: CGPoint(x: x + 3, y: size.height - 14),
                         anchor: .topLeading
                     )
