@@ -6,3 +6,9 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 .DS_Store
+
+# Local tool and editor config (any dot-folder at any level) and agent skill lockfiles
+.*/
+!.github/
+skills-lock.json
+AGENTS.md
