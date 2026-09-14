@@ -27,7 +27,7 @@ no accounts, no server, no cloud — everything runs and stays on-device.
 ## Navigation
 
 One `NavigationStack`, no tab bar. The project list is the root; tapping a project
-pushes its editor. Settings is a sheet opened from the profile button (top-right).
+pushes its editor. Settings is a sheet opened from the gear button (top-right).
 
 The bottom toolbar on the project list holds the search field (leading), the
 **"+" import button** and the **red Record button** (trailing). Record is not
@@ -40,7 +40,7 @@ settings, applied at the root. Every screen sits on `AppBackground`.
 
 ## Screen: Projects (list)
 
-**Title**: native large title "Siasca"; profile button top-right opens Settings.
+**Title**: native large title "Siasca"; gear button top-right opens Settings.
 
 **Empty state** (no projects yet): a centered icon, "No Projects Yet," and a single
 "Import Track" button that opens the same import menu as the "+" button.
@@ -95,7 +95,8 @@ so the current time stays under the playhead. There is no tap-to-seek and no
 separate ruler drag — one gesture does it all.
 
 - **Track headers** (fixed left column): icon + name (tap opens that track's
-  panel) and a mute toggle.
+  panel) and a mute toggle. The lanes sit on a card with all four corners rounded
+  and a margin around it, rather than a surface running off the bottom edge.
 - **Ruler**: scrolls with the content. Tick spacing adapts to zoom.
 - **Pinch to zoom**: anchored at the playhead, so the time under it never drifts.
 - **Clips** draw real waveforms (peaks decoded once per file and cached).
@@ -116,16 +117,33 @@ separate ruler drag — one gesture does it all.
 - **Live recording lane**: while capturing, a red lane grows from the record
   start under the playhead.
 
-### 3. Transport (floating, bottom)
+### 3. Floating control layer (bottom)
 
-Rewind, Play/Pause (large, filled), Record (ring that morphs to a square while
-recording). Rewind is disabled while recording.
+One bottom-aligned stack over the timeline card's lower portion. Only the
+transport is always present:
 
-### 4. Track panel (sheet, slides up from the bottom)
+- **Clip actions** (Split / Delete) appear *above* the transport when a clip is
+  selected.
+- **Transport**: Rewind, Play/Pause (large, filled), Record (ring that morphs to
+  a square while recording). Rewind is disabled while recording.
+- **Track panel** appears *below* the transport when a track is selected, which
+  pushes the transport up instead of burying it.
 
-Opened by tapping any track header. Always shows **Volume**. For vocal/recording
-tracks it also shows **Autotune** (Siasca Plus — locked with a badge; tapping opens
-the paywall placeholder), **Reverb** and **EQ**.
+The timeline's bottom scroll inset grows to match whatever is floating, so the
+last lane can always be scrolled clear.
+
+### 4. Track panel
+
+Opened by tapping any track header. Fixed height, and deliberately **not a
+sheet** — a sheet owns the bottom of the screen, so the transport would sit
+underneath it and you'd have to dismiss the panel to hear what a change did.
+Here the transport stays directly above it, so you can move a slider and hit
+play without closing anything. There is no full-screen state to drag to. Drag
+the grabber down past a threshold, or tap Done, to close.
+
+Always shows **Volume**. For vocal/recording tracks it also shows **Autotune**
+(Siasca Plus — locked with a badge; tapping opens the paywall placeholder),
+**Reverb** and **EQ**.
 
 Renaming the project is in the "…" menu in the navigation bar (custom card, not
 a system dialog). Stem separation is a navigation-bar button.

@@ -1,9 +1,15 @@
 import SwiftUI
 
-/// The studio. Three layers, bottom to top: the app background, the readout plus
-/// timeline, and a floating control layer (clip actions, transport) over the
-/// bottom edge. The timeline scrolls under the control layer, which is what earns
-/// the glass on it.
+/// The studio. Three layers, bottom to top — the app background, the readout and
+/// the timeline card, and a floating control layer over the card's lower portion.
+///
+/// The control layer is one bottom-aligned stack, and everything in it is optional
+/// except the transport: clip actions appear above the transport when a clip is
+/// selected, the track panel appears below it when a track is. Because the stack
+/// grows downward from the transport, opening the track panel pushes the transport
+/// *up* rather than burying it, so you can move a slider and hit play without
+/// closing anything. The timeline's bottom scroll inset grows to match, so the
+/// last lane can always be scrolled clear of whatever is currently floating.
 struct EditorView: View {
     @State var viewModel: EditorViewModel
 
@@ -11,24 +17,23 @@ struct EditorView: View {
     @State private var pendingTitle = ""
     @FocusState private var renameFieldFocused: Bool
 
-    /// Room the timeline leaves under the floating controls.
-    private let controlsClearance: CGFloat = 150
+    // Heights the timeline reserves so its last lane can always be scrolled clear
+    // of whatever is floating over the bottom of the card.
+    private static let transportClearance: CGFloat = 96
+    private static let actionBarClearance: CGFloat = 52
+
+    /// Scroll room under the lanes, grown by whatever is currently floating.
+    private var timelineBottomInset: CGFloat {
+        var inset = Self.transportClearance
+        if viewModel.selectedClip != nil { inset += Self.actionBarClearance }
+        if viewModel.selectedTrack != nil { inset += TrackPanelView.height + DS.Spacing.sm }
+        return inset
+    }
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
             get: { viewModel.errorMessage != nil },
             set: { showing in if !showing { viewModel.errorMessage = nil } }
-        )
-    }
-
-    // Bridges the track-selection state into a sheet-presented Bool. Every track kind
-    // gets a sheet (volume applies to all of them) — only the effects tiles inside
-    // are conditional on effectsApplicable. When the sheet is drag-dismissed, the
-    // binding setter deselects the track.
-    private var showEffectsSheet: Binding<Bool> {
-        Binding(
-            get: { viewModel.selectedTrack != nil },
-            set: { showing in if !showing { viewModel.deselectTrack() } }
         )
     }
 
@@ -79,6 +84,7 @@ struct EditorView: View {
         }
         .animation(DS.Animation.spring, value: viewModel.stemStatus)
         .animation(DS.Animation.spring, value: viewModel.selectedClipID)
+        .animation(DS.Animation.spring, value: viewModel.selectedTrackID)
         .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isRecording)
         .sensoryFeedback(.selection, trigger: viewModel.selectedTrackID)
         .sensoryFeedback(.selection, trigger: viewModel.selectedClipID)
@@ -96,9 +102,6 @@ struct EditorView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .sheet(isPresented: showEffectsSheet) {
-            effectsSheet
-        }
     }
 
     // MARK: - Timeline
@@ -112,7 +115,7 @@ struct EditorView: View {
             recordingRange: viewModel.recordingRange,
             selectedTrackID: viewModel.selectedTrackID,
             selectedClipID: viewModel.selectedClipID,
-            bottomInset: controlsClearance,
+            bottomInset: timelineBottomInset,
             onSelectTrack: viewModel.selectTrack,
             onMuteTrack: viewModel.toggleMute,
             onSelectClip: viewModel.selectClip,
@@ -126,8 +129,18 @@ struct EditorView: View {
             onScrub: viewModel.scrub,
             onEndScrub: viewModel.endScrub
         )
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card))
-        .ignoresSafeArea(edges: .bottom)
+        // A card with all four corners rounded and a margin around it, rather than
+        // a rounded-top surface bleeding off the bottom of the screen — that read
+        // as the panel being cut off rather than as a deliberate edge. The floating
+        // controls sit over its lower portion, so content still scrolls beneath
+        // them and the glass on them is earned.
+        .clipShape(.rect(cornerRadius: DS.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: DS.Radius.card)
+                .stroke(Color(.separator).opacity(0.6), lineWidth: 0.5)
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.bottom, DS.Spacing.xs)
     }
 
     // MARK: - Floating controls
@@ -149,8 +162,25 @@ struct EditorView: View {
                 onRewind: viewModel.rewind,
                 onToggleRecord: viewModel.toggleRecording
             )
+
+            // Last in the stack, so the transport is pushed up above it and stays
+            // reachable while you are adjusting a slider. Re-identified per track:
+            // the tiles copy their initial values into @State, so without this the
+            // previous track's volume/EQ would show — and apply — to the new one.
+            if let track = viewModel.selectedTrack {
+                TrackPanelView(
+                    track: track,
+                    onVolumeChange: viewModel.updateVolume,
+                    onReverbChange: viewModel.updateReverb,
+                    onEQChange: viewModel.updateEQGain,
+                    onDismiss: viewModel.deselectTrack
+                )
+                .id(track.id)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .padding(.bottom, DS.Spacing.sm)
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.bottom, DS.Spacing.xs)
     }
 
     // MARK: - Rename overlay (custom — never the native alert/TextField)
@@ -210,53 +240,6 @@ struct EditorView: View {
         withAnimation(DS.Animation.spring) { showingRename = false }
     }
 
-    // MARK: - Effects sheet
-
-    @ViewBuilder
-    private var effectsSheet: some View {
-        if let track = viewModel.selectedTrack {
-            NavigationStack {
-                ScrollView {
-                    VStack(spacing: DS.Spacing.md) {
-                        VolumeTileView(
-                            volume: track.volume,
-                            onVolumeChange: viewModel.updateVolume
-                        )
-                        if track.effectsApplicable {
-                            PlusGate { AutotuneTileView() }
-                            ReverbTileView(
-                                reverbMix: track.effects.reverbMix,
-                                onReverbChange: viewModel.updateReverb
-                            )
-                            EQTileView(
-                                eqGains: track.effects.eqGains,
-                                onEQChange: viewModel.updateEQGain
-                            )
-                        }
-                    }
-                    .padding(.horizontal, DS.Spacing.md)
-                    .padding(.vertical, DS.Spacing.lg)
-                }
-                .scrollIndicators(.hidden)
-                .background(AppBackground())
-                .navigationTitle(track.name)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { viewModel.deselectTrack() }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-            // Background interaction means a different track header can be tapped
-            // while this sheet stays up. The tiles copy their initial values into
-            // @State, so without re-identifying the whole sheet per track, the old
-            // track's volume/EQ values would be shown — and applied — to the new one.
-            .id(track.id)
-        }
-    }
 }
 
 // MARK: - Separate (stem split) button

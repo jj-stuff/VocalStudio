@@ -51,7 +51,7 @@ struct ProjectListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: onOpenSettings) {
-                    Image(systemName: "person.crop.circle")
+                    Image(systemName: "gearshape.fill")
                 }
                 .accessibilityLabel("Settings")
             }
