@@ -16,6 +16,9 @@ final class EditorViewModel {
     private(set) var project: Project
     private(set) var tracks: [Track] = []
     var selectedTrackID: UUID?
+    /// The clip with the editing handles and the Split/Delete bar. Only the user's
+    /// own recordings can be selected — imported and separated audio is locked.
+    var selectedClipID: UUID?
 
     // MARK: - Transport state
 
@@ -133,6 +136,36 @@ final class EditorViewModel {
         engine.seek(to: time)
     }
 
+    // MARK: - Scrubbing
+    //
+    // The timeline scrolls under a fixed playhead, so a scroll *is* a scrub. While
+    // the user's finger is down (or the scroll is decelerating) playback pauses and
+    // every offset change lands here; when the scroll settles, playback resumes
+    // from wherever it stopped if it was running before.
+
+    @ObservationIgnored private var resumeAfterScrub = false
+
+    func beginScrub() {
+        guard !isRecording else { return }
+        resumeAfterScrub = isPlaying
+        if isPlaying { engine.pause() }
+    }
+
+    func scrub(to time: TimeInterval) {
+        guard !isRecording else { return }
+        let clamped = time.clamped(to: 0...max(0, duration))
+        // Set locally first so the readout follows the finger with zero lag; the
+        // poll tick will confirm the same value from the engine a frame later.
+        currentTime = clamped
+        engine.seek(to: clamped)
+    }
+
+    func endScrub() {
+        guard resumeAfterScrub else { return }
+        resumeAfterScrub = false
+        try? engine.play(from: currentTime)
+    }
+
     // MARK: - Recording
 
     func toggleRecording() {
@@ -198,14 +231,35 @@ final class EditorViewModel {
         engine.applyEffects(tracks[i].effects, to: id)
     }
 
+    // MARK: - Clip selection
+
+    var selectedClip: (track: Track, clip: AudioClip)? {
+        guard let clipID = selectedClipID else { return nil }
+        for track in tracks {
+            if let clip = track.clips.first(where: { $0.id == clipID }) { return (track, clip) }
+        }
+        return nil
+    }
+
+    func selectClip(_ clipID: UUID?) {
+        selectedClipID = clipID
+    }
+
+    /// Split is only offered when the playhead is strictly inside the selected
+    /// clip — splitting at either end would leave a zero-length piece.
+    var canSplitSelectedClip: Bool {
+        guard let clip = selectedClip?.clip else { return false }
+        let inset = 0.05
+        return currentTime > clip.timelineOffset + inset && currentTime < clip.timelineEnd - inset
+    }
+
     // MARK: - Clip editing (user recording clips only)
 
     func moveClip(id clipID: UUID, inTrack trackID: UUID, to newOffset: TimeInterval) {
         guard let ti = tracks.firstIndex(where: { $0.id == trackID }),
               let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
         tracks[ti].clips[ci].timelineOffset = max(0, newOffset)
-        engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
-        persistRecordingMetadata(for: tracks[ti].clips[ci])
+        commitEdit(to: tracks[ti].clips[ci], trackID: trackID)
     }
 
     func trimClip(id clipID: UUID, inTrack trackID: UUID, trimStart: TimeInterval, trimEnd: TimeInterval, timelineOffset: TimeInterval) {
@@ -214,8 +268,68 @@ final class EditorViewModel {
         tracks[ti].clips[ci].trimStart = trimStart
         tracks[ti].clips[ci].trimEnd = trimEnd
         tracks[ti].clips[ci].timelineOffset = timelineOffset
-        engine.updateClip(tracks[ti].clips[ci], trackID: trackID)
-        persistRecordingMetadata(for: tracks[ti].clips[ci])
+        commitEdit(to: tracks[ti].clips[ci], trackID: trackID)
+    }
+
+    /// Cuts the selected clip at the playhead into two clips on the same track.
+    /// Both halves keep pointing at the same file — the left one gains a tail trim,
+    /// the right one a head trim — so nothing is re-encoded and the cut is exact.
+    func splitSelectedClip() {
+        guard canSplitSelectedClip,
+              let selection = selectedClip,
+              let ti = tracks.firstIndex(where: { $0.id == selection.track.id }),
+              let ci = tracks[ti].clips.firstIndex(where: { $0.id == selection.clip.id }) else { return }
+
+        let track = selection.track
+        let clip = selection.clip
+        let cutInClip = currentTime - clip.timelineOffset   // seconds into the trimmed clip
+
+        var left = clip
+        left.trimEnd = clip.duration - (clip.trimStart + cutInClip)
+
+        var right = AudioClip(
+            url: clip.url,
+            timelineOffset: currentTime,
+            duration: clip.duration,
+            trimStart: clip.trimStart + cutInClip,
+            trimEnd: clip.trimEnd
+        )
+
+        tracks[ti].clips[ci] = left
+        engine.updateClip(left, trackID: track.id)
+        if let wired = engine.addClip(right, to: tracks[ti]) { right = wired }
+        tracks[ti].clips.insert(right, at: ci + 1)
+        engine.refreshPlayback()
+
+        // Persist: update the left half in place, add the right half to the same take.
+        var recordings = project.recordings
+        if let index = recordings.firstIndex(where: { $0.id == left.id }) {
+            recordings[index].trimEnd = left.trimEnd
+            recordings.insert(
+                Recording(id: right.id, url: right.url, takeID: track.id,
+                          timelineOffset: right.timelineOffset, trimStart: right.trimStart, trimEnd: right.trimEnd),
+                at: index + 1
+            )
+        }
+        project = project.withRecordings(recordings)
+        Task { try? await store.save(project) }
+
+        // Keep the piece under the playhead selected, which is the right half.
+        selectedClipID = right.id
+    }
+
+    func deleteSelectedClip() {
+        guard let selection = selectedClip else { return }
+        deleteClip(id: selection.clip.id, inTrack: selection.track.id)
+    }
+
+    /// Pushes an edited clip to the engine and to disk. If the clip is sounding
+    /// right now, playback is re-scheduled so what you hear matches what you see.
+    private func commitEdit(to clip: AudioClip, trackID: UUID) {
+        engine.updateClip(clip, trackID: trackID)
+        duration = engine.duration
+        engine.refreshPlayback()
+        persistRecordingMetadata(for: clip)
     }
 
     /// Keeps the persisted `Recording` entry for a `.userRecording` clip in sync
@@ -223,7 +337,7 @@ final class EditorViewModel {
     /// project — without this, edits only ever lived in the in-memory `tracks`
     /// array and silently reverted on the next fresh launch.
     private func persistRecordingMetadata(for clip: AudioClip) {
-        guard let index = project.recordings.firstIndex(where: { $0.url == clip.url }) else { return }
+        guard let index = project.recordings.firstIndex(where: { $0.id == clip.id }) else { return }
         var recordings = project.recordings
         recordings[index].timelineOffset = clip.timelineOffset
         recordings[index].trimStart = clip.trimStart
@@ -232,22 +346,24 @@ final class EditorViewModel {
         Task { try? await store.save(project) }
     }
 
-    /// Deletes a recorded take. If that was the track's only clip, the now-empty
+    /// Deletes a recorded clip. If that was the track's only clip, the now-empty
     /// track is removed too — an empty `.userRecording` row has nothing to show.
     func deleteClip(id clipID: UUID, inTrack trackID: UUID) {
         guard let ti = tracks.firstIndex(where: { $0.id == trackID }),
               let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
-        let deletedURL = tracks[ti].clips[ci].url
         tracks[ti].clips.remove(at: ci)
         engine.removeClip(id: clipID, trackID: trackID)
+        if selectedClipID == clipID { selectedClipID = nil }
 
         if tracks[ti].clips.isEmpty {
             tracks.remove(at: ti)
             recordingTracks.removeAll { $0.id == trackID }
             if selectedTrackID == trackID { selectedTrackID = nil }
+        } else {
+            recordingTracks = tracks.filter { $0.kind.isUserRecording }
         }
 
-        project = project.withRecordings(project.recordings.filter { $0.url != deletedURL })
+        project = project.withRecordings(project.recordings.filter { $0.id != clipID })
         Task { try? await store.save(project) }
     }
 
@@ -322,9 +438,12 @@ final class EditorViewModel {
 
     private func addRecordingClip(_ clip: AudioClip) {
         let index = recordingTracks.count
+        // The track's id is the take id; the clip's id is the recording's id. Both
+        // round-trip through `Recording` so a reopened project rebuilds the same
+        // tracks and clips (see Track.recordingTracks).
         var newTrack = Track(
-            id: UUID(),
-            name: "Take \(index + 1)",
+            id: clip.id,
+            name: String(localized: "Take \(index + 1)"),
             kind: .userRecording(index: index),
             clips: [clip]
         )
@@ -344,7 +463,9 @@ final class EditorViewModel {
         // Persist the full clip position (not just the URL) so it survives app
         // restarts and reopening the project — see Track.buildTracks.
         let recording = Recording(
+            id: clip.id,
             url: clip.url,
+            takeID: newTrack.id,
             timelineOffset: clip.timelineOffset,
             trimStart: clip.trimStart,
             trimEnd: clip.trimEnd
@@ -362,6 +483,9 @@ final class EditorViewModel {
             createdAt: project.createdAt, stems: [instrStem, vocalStem],
             recordings: project.recordings, effects: project.effects
         )
+        // Carry the live recording tracks over (they may have been trimmed, moved or
+        // split since `recordingTracks` was last refreshed) — `tracks` is freshest.
+        recordingTracks = tracks.filter { $0.kind.isUserRecording }
         tracks = Track.buildTracks(from: project, existingRecordingTracks: recordingTracks)
         stemStatus = .done
         // Persist stem URLs so the editor reloads them on next launch

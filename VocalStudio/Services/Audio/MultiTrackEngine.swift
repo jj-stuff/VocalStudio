@@ -124,38 +124,9 @@ final class MultiTrackEngine {
         var updatedTrack = track
 
         for (clipIndex, clip) in track.clips.enumerated() {
-            guard let audioFile = try? AVAudioFile(forReading: clip.url) else { continue }
-            let audioFormat = audioFile.processingFormat
-
-            guard audioFormat.sampleRate > 0, audioFormat.channelCount > 0 else { continue }
-
-            let fileDuration = Double(audioFile.length) / audioFormat.sampleRate
-            guard fileDuration > 0 else { continue }
-
-            let playerNode = AVAudioPlayerNode()
-            playerNode.volume = track.volume
-            engine.attach(playerNode)
-
-            if track.effectsApplicable {
-                let chain = effectsChain(for: track.id, format: audioFormat)
-                engine.connect(playerNode, to: chain.input, format: audioFormat)
-            } else {
-                engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+            if let wired = wireClip(clip, into: track) {
+                updatedTrack.clips[clipIndex] = wired
             }
-
-            var updatedClip = clip
-            updatedClip.duration = fileDuration
-            updatedTrack.clips[clipIndex] = updatedClip
-
-            loadedClips.append(LoadedClip(
-                trackID: track.id,
-                clip: updatedClip,
-                player: playerNode,
-                file: audioFile,
-                sampleRate: audioFormat.sampleRate
-            ))
-
-            duration = max(duration, updatedClip.timelineEnd)
         }
 
         if track.isMuted { mutedTrackIDs.insert(track.id) }
@@ -163,6 +134,67 @@ final class MultiTrackEngine {
             applySettingsToChain(chain, settings: track.effects)
         }
         return updatedTrack
+    }
+
+    /// Opens one clip's file, attaches a player for it and connects it to the
+    /// track's chain (or straight to the main mixer). Returns the clip with its
+    /// real `duration`, or nil if the file can't be read. Shared by `wireTrack`
+    /// and `addClip` so a split clip is wired exactly like a loaded one.
+    private func wireClip(_ clip: AudioClip, into track: Track) -> AudioClip? {
+        guard let audioFile = try? AVAudioFile(forReading: clip.url) else { return nil }
+        let audioFormat = audioFile.processingFormat
+        guard audioFormat.sampleRate > 0, audioFormat.channelCount > 0 else { return nil }
+
+        let fileDuration = Double(audioFile.length) / audioFormat.sampleRate
+        guard fileDuration > 0 else { return nil }
+
+        let playerNode = AVAudioPlayerNode()
+        playerNode.volume = track.volume
+        engine.attach(playerNode)
+
+        if track.effectsApplicable {
+            let chain = effectsChain(for: track.id, format: audioFormat)
+            engine.connect(playerNode, to: chain.input, format: audioFormat)
+        } else {
+            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+        }
+
+        var updatedClip = clip
+        updatedClip.duration = fileDuration
+
+        loadedClips.append(LoadedClip(
+            trackID: track.id,
+            clip: updatedClip,
+            player: playerNode,
+            file: audioFile,
+            sampleRate: audioFormat.sampleRate
+        ))
+
+        duration = max(duration, updatedClip.timelineEnd)
+        return updatedClip
+    }
+
+    /// Wires a single new clip onto an already-loaded track (the right-hand half of
+    /// a split). If playback is running the clip joins it in sync.
+    func addClip(_ clip: AudioClip, to track: Track) -> AudioClip? {
+        guard let wired = wireClip(clip, into: track) else { return nil }
+        if isPlaying, let loaded = loadedClips.last, !mutedTrackIDs.contains(track.id) {
+            syncCurrentTime()
+            scheduleClip(loaded, currentTime: currentTime, playAnchor: avAudioTime(secondsFromNow: 0.02))
+        }
+        return wired
+    }
+
+    /// Re-schedules every player from the current position. Call after an edit
+    /// that changes what should be audible mid-playback (a trim or split of a clip
+    /// that is currently sounding) — `updateClip` only changes the data the next
+    /// `play` reads, it doesn't touch players already running.
+    func refreshPlayback() {
+        guard isPlaying else { return }
+        syncCurrentTime()
+        let time = currentTime
+        pause()
+        try? play(from: time)
     }
 
     /// Returns the track's effects chain, creating and wiring it

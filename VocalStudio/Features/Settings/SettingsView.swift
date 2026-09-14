@@ -1,8 +1,17 @@
 import SwiftUI
 
+/// Settings, presented as a sheet from the project list. A native inset-grouped
+/// `List` — the same bones as the system Settings app, so it inherits every
+/// platform behaviour (Dynamic Type, VoiceOver row grouping, dark mode, the
+/// sheet's own scroll-edge treatment) for free.
 struct SettingsView: View {
     @State var viewModel: SettingsViewModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(PlusEntitlement.self) private var entitlement
+    @Environment(\.openURL) private var openURL
+
     @State private var showingDeleteAllConfirm = false
+    @State private var showingPaywall = false
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -18,153 +27,190 @@ struct SettingsView: View {
         )
     }
 
-    private static let byteFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     var body: some View {
-        ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-                    header
-                    storageCard
-                    dangerZoneCard
+        NavigationStack {
+            List {
+                if !entitlement.isActive {
+                    plusBanner
                 }
-                .padding(.horizontal, DS.Spacing.md + DS.Spacing.xs)
-                .padding(.top, DS.Spacing.sm)
-                .padding(.bottom, DS.Size.tabBarVisualH + DS.Spacing.xl)
+                appearanceSection
+                storageSection
+                supportSection
+                legalSection
+                dangerSection
+                footer
             }
-            .scrollIndicators(.hidden)
-
-            if viewModel.isWorking {
-                loadingOverlay
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(role: .close) { dismiss() }
+                }
+            }
+            .overlay {
+                if viewModel.isWorking {
+                    loadingOverlay
+                }
             }
         }
         .task { viewModel.refresh() }
+        .sheet(isPresented: $showingPaywall) {
+            PlusPaywallView()
+        }
         .alert("Error", isPresented: showErrorAlert) {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .alert(
-            viewModel.lastActionMessage ?? "",
-            isPresented: showActionAlert
-        ) {
+        .alert(viewModel.lastActionMessage ?? "", isPresented: showActionAlert) {
             Button("OK") { viewModel.lastActionMessage = nil }
         }
         .alert("Delete All Projects?", isPresented: $showingDeleteAllConfirm) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete Everything", role: .destructive) {
+            Button("Delete All", role: .destructive) {
                 Task { await viewModel.deleteAllProjects() }
             }
         } message: {
-            Text("This permanently deletes every project, recording, and separated stem on this device. This can't be undone.")
+            Text("This permanently deletes every project, recording and separated stem on this device. You can't undo this.")
         }
     }
 
-    // MARK: - Header
+    // MARK: - Aria Plus banner
+    //
+    // The Mist-style upgrade card at the top. Tinted with the brand purple so it
+    // stands apart from the monochrome rows below it. Hidden once the user has Plus.
 
-    private var header: some View {
-        HStack(spacing: DS.Spacing.sm) {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 22))
-                .foregroundStyle(.primary)
-            Text("Settings")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.primary)
-            Spacer()
-        }
-        .padding(.top, DS.Spacing.sm)
-    }
-
-    // MARK: - Storage
-
-    private var storageCard: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm + DS.Spacing.xxs) {
-            HStack {
-                Text("STORAGE")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(1.5)
-                Spacer()
-                Text(Self.byteFormatter.string(fromByteCount: viewModel.totalBytes))
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.primary)
-            }
-
-            VStack(spacing: DS.Spacing.sm - DS.Spacing.xxs) {
-                ForEach(viewModel.folderUsage, id: \.name) { entry in
-                    HStack {
-                        Image(systemName: icon(for: entry.name))
-                            .font(.system(size: 14))
-                            .foregroundStyle(.primary)
-                            .frame(width: 22)
-                        Text(label(for: entry.name))
-                            .font(.system(size: 14))
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text(Self.byteFormatter.string(fromByteCount: entry.bytes))
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.secondary)
+    private var plusBanner: some View {
+        Section {
+            Button {
+                showingPaywall = true
+            } label: {
+                HStack(spacing: DS.Spacing.sm) {
+                    SettingsIconTile(
+                        systemImage: "sparkles",
+                        tint: .white.opacity(0.22),
+                        symbolColor: .white
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Upgrade to \(AppConfig.Plus.productName)")
+                            .font(.headline)
+                        Text("Autotune and everything coming next.")
+                            .font(.footnote)
+                            .opacity(0.85)
                     }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .opacity(0.8)
+                }
+                .foregroundStyle(.white)
+                .padding(.vertical, DS.Spacing.xxs)
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(
+                LinearGradient(
+                    colors: [DS.Brand.pink, DS.Brand.purple2],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            )
+        }
+    }
+
+    // MARK: - Sections
+
+    private var appearanceSection: some View {
+        Section {
+            NavigationLink {
+                AppearanceSettingsView()
+            } label: {
+                SettingsRowLabel("Appearance", systemImage: "paintbrush.fill")
+            }
+        }
+    }
+
+    private var storageSection: some View {
+        Section {
+            ForEach(viewModel.folderUsage, id: \.name) { entry in
+                SettingsRowLabel(title: label(for: entry.name), systemImage: icon(for: entry.name)) {
+                    Text(entry.bytes, format: .byteCount(style: .file))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
-
-            Divider().opacity(0.2)
-
-            Text("Recordings and separated stems are saved on this device only — deleting a project frees its files automatically. Use this if files were ever left behind by an older version of the app.")
-                .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
-
             Button {
                 Task { await viewModel.cleanUpUnusedFiles() }
             } label: {
-                Label("Clean Up Unused Files", systemImage: "sparkles")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DS.Spacing.sm - DS.Spacing.xxs)
-                    .background(Color(.tertiarySystemFill), in: .capsule)
+                SettingsRowLabel("Clean Up Unused Files", systemImage: "sparkles")
             }
-            .buttonStyle(.plain)
             .disabled(viewModel.isWorking)
+        } header: {
+            Text("Storage")
+        } footer: {
+            Text("Everything stays on this device. Deleting a project removes its files. Clean Up only removes files no project uses any more.")
         }
-        .padding(DS.Spacing.md)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.card))
     }
 
-    // MARK: - Danger zone
+    private var supportSection: some View {
+        Section("Support") {
+            SettingsActionRow(title: "Contact Support", systemImage: "envelope.fill") {
+                openURL(AppConfig.supportMailURL)
+            }
+            SettingsActionRow(title: "Rate \(AppConfig.appName)", systemImage: "star.fill") {
+                openURL(AppConfig.appStoreReviewURL)
+            }
+            ShareLink(item: AppConfig.websiteURL) {
+                SettingsRowLabel("Share \(AppConfig.appName)", systemImage: "square.and.arrow.up.fill")
+            }
+        }
+    }
 
-    private var dangerZoneCard: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            Text("DANGER ZONE")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .tracking(1.5)
+    private var legalSection: some View {
+        Section("Legal") {
+            SettingsActionRow(title: "Terms of Service", systemImage: "doc.text.fill") {
+                openURL(AppConfig.termsOfServiceURL)
+            }
+            SettingsActionRow(title: "Privacy Policy", systemImage: "hand.raised.fill") {
+                openURL(AppConfig.privacyPolicyURL)
+            }
+        }
+    }
 
-            Text("Permanently deletes every project, recording, and separated stem on this device. This can't be undone.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-
-            Button {
+    private var dangerSection: some View {
+        Section {
+            Button(role: .destructive) {
                 showingDeleteAllConfirm = true
             } label: {
-                Label("Delete All Projects", systemImage: "trash.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DS.Spacing.sm - DS.Spacing.xxs)
-                    .background(Color(.tertiarySystemFill), in: .capsule)
+                SettingsRowLabel(
+                    "Delete All Projects",
+                    systemImage: "trash.fill",
+                    tint: .red.opacity(0.12),
+                    symbolColor: .red
+                )
+                .foregroundStyle(.red)
             }
-            .buttonStyle(.plain)
             .disabled(viewModel.isWorking)
         }
-        .padding(DS.Spacing.md)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.card))
+    }
+
+    // MARK: - Footer (wordmark + version)
+
+    private var footer: some View {
+        Section {
+            VStack(spacing: DS.Spacing.xs) {
+                Text(AppConfig.appName)
+                    .font(DS.Font.wordmark(34))
+                Text(AppConfig.versionString)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, DS.Spacing.lg)
+            .listRowBackground(Color.clear)
+        }
     }
 
     // MARK: - Loading
@@ -174,7 +220,6 @@ struct SettingsView: View {
             Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
             ProgressView()
                 .controlSize(.large)
-                .tint(.primary)
         }
     }
 
@@ -182,19 +227,19 @@ struct SettingsView: View {
 
     private func icon(for folderName: String) -> String {
         switch folderName {
-        case "Audio": "music.note"
+        case "Audio":      "music.note"
         case "Recordings": "mic.fill"
-        case "Stems": "waveform"
-        default: "doc"
+        case "Stems":      "waveform"
+        default:           "doc.fill"
         }
     }
 
-    private func label(for folderName: String) -> String {
+    private func label(for folderName: String) -> LocalizedStringKey {
         switch folderName {
-        case "Audio": "Imported Tracks"
+        case "Audio":      "Imported Tracks"
         case "Recordings": "Your Recordings"
-        case "Stems": "Separated Stems"
-        default: folderName
+        case "Stems":      "Separated Stems"
+        default:           LocalizedStringKey(folderName)
         }
     }
 }

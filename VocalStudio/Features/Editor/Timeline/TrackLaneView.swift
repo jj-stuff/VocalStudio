@@ -2,6 +2,8 @@ import SwiftUI
 
 // MARK: - Track header (fixed left column)
 
+/// One row of the fixed header column: the track's icon and name (tap to open its
+/// volume/effects panel) and a mute toggle underneath.
 struct TrackHeaderView: View {
     let track: Track
     let isSelected: Bool
@@ -9,38 +11,20 @@ struct TrackHeaderView: View {
     let onMute: () -> Void
 
     var body: some View {
-        VStack(spacing: 2) {
-            // Icon + name are the tappable "open settings" control. A circular chip
-            // (matching the mute/transport buttons' own look) plus a small badge make
-            // it read as a button rather than a static label — previously this was
-            // just a bare glyph with no visual hint it opened anything.
+        VStack(spacing: DS.Spacing.xs) {
             Button(action: onTap) {
-                VStack(spacing: 3) {
+                VStack(spacing: 4) {
                     Image(systemName: track.kind.displayIcon)
-                        .font(.system(size: 14))
-                        .foregroundStyle(isSelected ? Color(.systemBackground) : Color(.secondaryLabel))
-                        .frame(width: 30, height: 30)
-                        .background(
-                            isSelected ? Color.primary : Color(.systemFill),
-                            in: Circle()
-                        )
-                        .overlay(alignment: .bottomTrailing) {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 6, weight: .bold))
-                                .foregroundStyle(Color(.systemBackground))
-                                .frame(width: 12, height: 12)
-                                .background(Color.primary, in: Circle())
-                                .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 1.5))
-                        }
-
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(isSelected ? Color(.systemBackground) : .primary)
+                        .frame(width: 32, height: 32)
+                        .background(isSelected ? Color.primary : Color(.tertiarySystemFill), in: Circle())
                     Text(track.name)
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(isSelected ? .primary : .secondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: 58)
+                        .minimumScaleFactor(0.8)
                 }
-                .padding(.top, DS.Spacing.sm)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
             }
@@ -48,89 +32,120 @@ struct TrackHeaderView: View {
             .accessibilityLabel("\(track.name) settings")
             .accessibilityHint("Opens volume and effects")
 
-            Spacer(minLength: 0)
-
             Button(action: onMute) {
-                Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.1.fill")
-                    .font(.system(size: 15))
+                Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(track.isMuted ? Color.red : Color.secondary)
-                    .frame(width: 44, height: 30)
+                    .frame(width: 44, height: 26)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(track.isMuted ? "Unmute \(track.name)" : "Mute \(track.name)")
-            .padding(.bottom, DS.Spacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            isSelected ? Color.primary.opacity(0.08) : Color(.systemFill).opacity(0.5),
-            // Leading corners only — the trailing edge stays flush against the
-            // scrollable clip area, so each row reads as a tab sticking out from
-            // the timeline grid rather than a fully separate floating card.
-            in: UnevenRoundedRectangle(
-                topLeadingRadius: DS.Radius.sm, bottomLeadingRadius: DS.Radius.sm,
-                bottomTrailingRadius: 0, topTrailingRadius: 0
-            )
-        )
+        .background(isSelected ? Color.primary.opacity(0.06) : Color.clear)
         .animation(DS.Animation.smooth, value: isSelected)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(Color(.separator))
-                .frame(width: 0.5)
-        }
     }
 }
 
-// MARK: - Clip canvas (scrollable right area for one track)
+/// Header for the in-flight recording lane — a pulsing red dot so it clearly reads
+/// as "capturing right now", not another finished take.
+struct RecordingHeaderView: View {
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                // symbolEffect animates SF Symbols only, hence an Image, not a Circle.
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .symbolEffect(.pulse)
+            }
+            Text("Recording")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.red)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.red.opacity(0.06))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recording in progress")
+    }
+}
 
-struct TrackClipAreaView: View {
+// MARK: - Clip lane (scrollable right area for one track)
+
+/// The lane for one track: its clips positioned by time. Tapping empty lane space
+/// clears the clip selection; scrolling is handled by the enclosing ScrollView.
+struct TrackLaneView: View {
     let track: Track
-    let pixelsPerSecond: CGFloat
-    let totalWidth: CGFloat
+    let geometry: TimelineGeometry
+    let selectedClipID: UUID?
+    let playheadTime: TimeInterval
+    let onSelectClip: (UUID?) -> Void
     let onMoveClip: (UUID, TimeInterval) -> Void
     let onTrimClip: (UUID, TimeInterval, TimeInterval, TimeInterval) -> Void
-    let onDeleteClip: (UUID) -> Void
-    let onSeek: (TimeInterval) -> Void
 
     var body: some View {
         ZStack(alignment: .leading) {
-            // Lane background
-            Color(.systemBackground).opacity(0.04)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Color(.separator).opacity(0.6))
-                        .frame(height: 0.5)
-                }
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { onSelectClip(nil) }
 
-            // Clips — inset vertically so they don't touch the lane separators.
             ForEach(track.clips) { clip in
                 ClipView(
                     clip: clip,
                     trackKind: track.kind,
-                    pixelsPerSecond: pixelsPerSecond,
-                    isDraggable: track.kind.isUserRecording,
-                    onMove: { newOffset in
-                        onMoveClip(clip.id, newOffset)
-                    },
-                    onTrim: { trimStart, trimEnd, timelineOffset in
-                        onTrimClip(clip.id, trimStart, trimEnd, timelineOffset)
-                    },
-                    onDelete: { onDeleteClip(clip.id) }
+                    geometry: geometry,
+                    isSelected: selectedClipID == clip.id,
+                    isEditable: track.kind.isUserRecording,
+                    playheadTime: playheadTime,
+                    neighbourEdges: neighbourEdges(excluding: clip.id),
+                    onSelect: { onSelectClip(track.kind.isUserRecording ? clip.id : nil) },
+                    onMove: { newOffset in onMoveClip(clip.id, newOffset) },
+                    onTrim: { trimStart, trimEnd, offset in onTrimClip(clip.id, trimStart, trimEnd, offset) }
                 )
                 .padding(.vertical, DS.Spacing.xs)
             }
         }
-        .frame(width: totalWidth)
-        .clipped()
-        // simultaneousGesture (not gesture/highPriorityGesture) — lets a tap seek
-        // whether it lands on empty lane space or directly on a clip, without
-        // disturbing the clip's own drag-to-move/trim gestures or the ancestor
-        // ScrollView's horizontal pan. Tapping and dragging are distinguished by
-        // movement, not by which gesture claims the touch first.
-        .simultaneousGesture(
-            SpatialTapGesture().onEnded { value in
-                onSeek(max(0, Double(value.location.x / pixelsPerSecond)))
-            }
-        )
+    }
+
+    /// Start and end of every other clip on this track, as snap targets.
+    private func neighbourEdges(excluding clipID: UUID) -> [(clipID: UUID, time: TimeInterval)] {
+        track.clips
+            .filter { $0.id != clipID }
+            .flatMap { [(clipID: $0.id, time: $0.timelineOffset), (clipID: $0.id, time: $0.timelineEnd)] }
+    }
+}
+
+/// The growing clip for the take being captured. Purely visual — the real,
+/// editable clip replaces it the moment recording stops.
+struct RecordingLaneView: View {
+    let range: ClosedRange<TimeInterval>
+    let geometry: TimelineGeometry
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Color.clear
+            RoundedRectangle(cornerRadius: 8)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.62, green: 0.12, blue: 0.18),
+                                 Color(red: 0.42, green: 0.07, blue: 0.12)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.red.opacity(0.7), lineWidth: 1)
+                }
+                .frame(width: max(6, geometry.x(range.upperBound - range.lowerBound)))
+                .padding(.vertical, DS.Spacing.xs)
+                .offset(x: geometry.x(range.lowerBound))
+        }
+        .allowsHitTesting(false)
     }
 }

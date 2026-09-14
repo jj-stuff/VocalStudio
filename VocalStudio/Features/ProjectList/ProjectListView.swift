@@ -5,17 +5,16 @@ import UniformTypeIdentifiers
 struct ProjectListView: View {
     @State var viewModel: ProjectListViewModel
     let onSelectProject: (Project) -> Void
+    /// The red record button: creates a project and opens the editor recording.
+    let onInstantRecord: () -> Void
+    /// The profile button, top-right. Settings is a sheet owned by `RootView`.
+    let onOpenSettings: () -> Void
 
     @State private var showingImportMenu     = false
     @State private var isImportingFromFiles  = false
     @State private var isImportingFromPhotos = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var searchQuery           = ""
-    @FocusState private var isSearchFocused: Bool
-
-    /// Distance from the safe-area bottom to the TOP of the floating tab bar —
-    /// derived from the bar's real metrics so nothing overlaps it.
-    private let tabClearance: CGFloat = DS.Size.tabBarVisualH + DS.Spacing.xl
 
     private var filteredProjects: [Project] {
         guard !searchQuery.isEmpty else { return viewModel.projects }
@@ -29,44 +28,54 @@ struct ProjectListView: View {
         )
     }
 
+    private var isEmpty: Bool {
+        viewModel.projects.isEmpty && viewModel.pendingImports.isEmpty && !viewModel.isLoading
+    }
+
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Color(.systemGroupedBackground)
-                .ignoresSafeArea()
+        ZStack {
+            AppBackground()
 
-            VStack(spacing: 0) {
-                header
-                    .padding(.horizontal, DS.Spacing.lg)
-                    .padding(.top, DS.Spacing.sm)
-                    .padding(.bottom, DS.Spacing.sm)
-
-                if viewModel.projects.isEmpty && viewModel.pendingImports.isEmpty && !viewModel.isLoading {
-                    emptyState
-                } else {
-                    if viewModel.projects.count > 1 {
-                        searchField
-                            .padding(.horizontal, DS.Spacing.lg)
-                            .padding(.bottom, DS.Spacing.sm)
-                    }
-                    projectList
-                }
+            if isEmpty {
+                emptyState
+            } else {
+                projectList
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .zIndex(0)
-            // Tap anywhere — header, empty space, or the list itself — to drop
-            // search focus. simultaneousGesture so it doesn't steal taps meant for
-            // row buttons or the search field's own clear button.
-            .simultaneousGesture(
-                TapGesture().onEnded { isSearchFocused = false }
-            )
+        }
+        // Native large title + native search. On iPhone the search field lands in
+        // the bottom toolbar next to the action buttons (the Mail/Files layout),
+        // and minimises to a magnifier once the user scrolls.
+        .navigationTitle(AppConfig.appName)
+        .searchable(text: $searchQuery, prompt: Text("Search"))
+        .searchToolbarBehavior(.minimize)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onOpenSettings) {
+                    Image(systemName: "person.crop.circle")
+                }
+                .accessibilityLabel("Settings")
+            }
 
-            // Trailing padding matches the tab bar's horizontal padding, and the
-            // record button is the same diameter — so the "+" floats exactly on
-            // the record button's vertical axis, a spacing step above the bar.
-            fabButton
-                .padding(.trailing, DS.Spacing.xl)
-                .padding(.bottom, tabClearance + DS.Spacing.sm)
-                .zIndex(5)
+            // Bottom bar: search on the leading side, the two actions trailing.
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    showingImportMenu = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Import track")
+            }
+            ToolbarItem(placement: .bottomBar) {
+                Button(action: onInstantRecord) {
+                    Image(systemName: "record.circle.fill")
+                }
+                .tint(.red)
+                .buttonStyle(.glassProminent)
+                .accessibilityLabel("Record now")
+                .accessibilityHint("Starts a new project and begins recording immediately")
+            }
         }
         .sheet(isPresented: $showingImportMenu) {
             ImportMenuSheet(
@@ -111,53 +120,6 @@ struct ProjectListView: View {
         .task { await viewModel.loadProjects() }
     }
 
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: DS.Spacing.sm) {
-            Text("Aria")
-                .font(.system(size: 32, weight: .bold))
-                .foregroundStyle(.primary)
-            Spacer()
-            if viewModel.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Text("\(viewModel.projects.count)")
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    // MARK: - Search
-
-    private var searchField: some View {
-        HStack(spacing: DS.Spacing.xs) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField("Search", text: $searchQuery)
-                .font(.system(size: 15))
-                .autocorrectionDisabled()
-                .focused($isSearchFocused)
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, DS.Spacing.md)
-        .padding(.vertical, DS.Spacing.sm)
-        .background(Color(.secondarySystemGroupedBackground), in: .capsule)
-    }
-
     // MARK: - Project list
 
     private var projectList: some View {
@@ -190,11 +152,6 @@ struct ProjectListView: View {
                 let ids = Set(offsets.map { filteredProjects[$0].id })
                 Task { await viewModel.delete(ids: ids) }
             }
-
-            Color.clear
-                .frame(height: tabClearance + DS.Size.fab)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -218,67 +175,20 @@ struct ProjectListView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: DS.Spacing.xl) {
-            Spacer()
-
-            ZStack {
-                Circle()
-                    .fill(Color.primary)
-                    .frame(width: 80, height: 80)
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(Color(.systemBackground))
-            }
-
-            VStack(spacing: DS.Spacing.xs) {
-                Text("No Projects Yet")
-                    .font(.title3.bold())
-                    .foregroundStyle(.primary)
-                Text("Import a backing track or video\nto start singing over it.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
+        ContentUnavailableView {
+            Label("No Projects", systemImage: "waveform")
+        } description: {
+            Text("Import a backing track or video, or tap Record to sing straight away.")
+        } actions: {
             Button {
                 showingImportMenu = true
             } label: {
-                Label("Import Track", systemImage: "plus")
-                    .font(.headline)
-                    .foregroundStyle(Color(.systemBackground))
-                    .padding(.horizontal, DS.Spacing.xl)
-                    .padding(.vertical, DS.Spacing.sm + DS.Spacing.xxs)
-                    .background(Color.primary, in: .capsule)
+                Text("Import Track")
+                    .padding(.horizontal, DS.Spacing.sm)
             }
-            .buttonStyle(.plain)
-
-            Spacer()
+            .buttonStyle(.glassProminent)
+            .tint(.primary)
         }
-        .padding(.horizontal, DS.Spacing.xxxl)
-        .padding(.bottom, tabClearance)
-    }
-
-    // MARK: - FAB
-
-    private var fabButton: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 22, weight: .medium))
-            .foregroundStyle(.primary)
-            .frame(width: DS.Size.fab, height: DS.Size.fab)
-            .background(Color(.secondarySystemGroupedBackground), in: Circle())
-            .overlay(Circle().stroke(Color(.separator), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
-            .contentShape(Circle())
-            // highPriorityGesture, not a Button — the FAB overlaps the List underneath
-            // it (in the bottomTrailing ZStack corner), and the List's own UIKit-backed
-            // scroll/row gesture recognizers intermittently won the touch over a plain
-            // Button despite zIndex, which only orders SwiftUI's own hit-testing, not
-            // UIKit's responder chain. This forces the tap to win outright.
-            .highPriorityGesture(
-                TapGesture().onEnded { showingImportMenu = true }
-            )
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Import track")
     }
 
     // MARK: - Handlers

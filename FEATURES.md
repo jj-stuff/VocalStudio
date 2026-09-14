@@ -21,41 +21,34 @@ no accounts, no server, no cloud — everything runs and stays on-device.
 
 ## Navigation
 
-Two real tabs plus one action button, in a custom floating capsule tab bar at the
-bottom of the screen:
+One `NavigationStack`, no tab bar. The project list is the root; tapping a project
+pushes its editor. Settings is a sheet opened from the profile button (top-right).
 
-- **Projects** (`music.note.list`) — the project list. The app's home.
-- **Settings** (`gearshape.fill`) — currently a placeholder screen ("App preferences
-  and account," no actual settings exist yet).
-- **Record button** — not a tab. A red ring with a punched-out center sitting
-  beside the pill bar (the action stands apart from navigation). Tapping it
-  immediately creates a new project (auto-named, silent placeholder source) and
-  opens the editor with recording already running — the "sing first, sort it out
-  later" path. No backing track is required to use this.
+The bottom toolbar on the project list holds the search field (leading), the
+**"+" import button** and the **red Record button** (trailing). Record is not
+navigation: it creates a new project (auto-named, silent placeholder source) and
+opens the editor with recording already running — the "sing first, sort it out
+later" path. No backing track is required.
 
-Tapping a project pushes straight into its editor (no intermediate screen). The
-custom tab bar hides itself whenever a full-screen overlay (import menu, the editor
-itself, etc.) is active.
+Appearance (System / Light / Dark) and background (Minimal wash / Plain) are user
+settings, applied at the root. Every screen sits on `AppBackground`.
 
 ## Screen: Projects (list)
 
-**Brand row** (top): a large bold "Aria" title, project count or a loading
-spinner trailing.
+**Title**: native large title "Aria"; profile button top-right opens Settings.
 
 **Empty state** (no projects yet): a centered icon, "No Projects Yet," and a single
 "Import Track" button that opens the same import menu as the "+" button.
 
-**List state**: a search field (only shown once there are 2+ projects — not worth
-it for one) above a scrollable list of project cards. Search filters by title,
-live, case-insensitive. Each card shows the project's title, a relative "added Xd
+**List state**: native search (bottom toolbar, minimises on scroll) above a
+scrollable list of project cards. Search filters by title, live, case-insensitive. Each card shows the project's title, a relative "added Xd
 ago" subtitle, a small abstract gradient thumbnail with decorative bars (not a real
 waveform), and a relative-age tag ("3d," "2w"). Tapping a card opens that project's
 editor. Swipe-to-delete is available on each row (standard list swipe gesture) and
 respects the current search filter (deletes the right project even when the list is
 filtered, not whatever happens to be at that row index).
 
-A floating "+" button (bottom-right, always present once there's at least one
-project) opens an import menu — a standard bottom sheet with two row choices:
+The "+" button in the bottom toolbar opens an import menu — a standard bottom sheet with two row choices:
 
 - **From Photos** — picks a video from the Photos library; its audio track is
   extracted in the background and becomes the project's source.
@@ -76,68 +69,61 @@ from a list of cat breeds, with a number appended on collision — "Persian," "P
 
 ## Screen: Editor
 
-Opened by tapping a project, or automatically via the instant-record donut button.
-Three parts, top to bottom:
+Opened by tapping a project, or automatically via the Record button. Layers, back
+to front: the app background, the time readout plus timeline, and a floating
+control layer over the bottom edge (clip actions when a clip is selected, then
+the transport). The timeline scrolls under the control layer.
 
-### 1. Transport bar (floating island, top of screen)
+### 1. Time readout (top)
 
-- **Time display** (large, leading): current playhead position over total duration,
-  e.g. `1:23.4` over `3:45.0`.
-- **Separate button** (trailing): see "Stem separation" below.
-- **Rewind**, **Play/Pause**, **Record** — three large circular buttons, centered,
-  with Record visually distinguished (red, fills solid when active).
+Large rounded-monospaced current position over the project length. Turns red
+while recording.
 
-### 2. Timeline (fills the rest of the screen)
+### 2. Timeline (fills the screen) — fixed playhead
 
-- **Track headers** (fixed left column): one row per track, each showing an icon for
-  the track's kind (instrumental, vocal, or one of your own recorded takes) and a
-  small mute toggle. Tapping a row selects that track and opens its panel (see
-  below); tapping the mute icon toggles muting without opening anything.
-- **Ruler**: time markers above the tracks. **Drag along the ruler to scrub** — the
-  playhead jumps to wherever you drag, live, whether or not playback is running.
-- **Track lanes** (horizontally scrollable): each track's audio is drawn as a
-  colored clip with a (currently decorative, not real-audio) waveform pattern.
-  Color indicates kind: blue/dark for instrumental, purple for vocal stems,
-  pink/purple gradient for your own recordings. **Tapping anywhere in a lane — empty
-  space or directly on a clip — also moves the playhead there.** Dragging still
-  scrolls the timeline horizontally as normal.
-- **Pinch to zoom**: two-finger pinch anywhere in the timeline zooms the horizontal
-  scale in/out, live.
+**The playhead never moves. The timeline scrolls under it.** Scrolling *is*
+scrubbing: drag or flick the lanes and the playhead position follows, with the
+scroll view's own momentum and rubber-banding. While your finger is down (or the
+scroll is coasting) playback pauses; when it settles, playback resumes from
+there if it was running. During playback and recording the content auto-scrolls
+so the current time stays under the playhead. There is no tap-to-seek and no
+separate ruler drag — one gesture does it all.
+
+- **Track headers** (fixed left column): icon + name (tap opens that track's
+  panel) and a mute toggle.
+- **Ruler**: scrolls with the content. Tick spacing adapts to zoom.
+- **Pinch to zoom**: anchored at the playhead, so the time under it never drifts.
+- **Clips** draw real waveforms (peaks decoded once per file and cached).
 - **Your own recorded takes are editable; imported/separated tracks are locked.**
-  For a take you recorded:
-  - **Drag the clip body** to move it earlier/later on the timeline.
-  - **Drag either edge** (small grip handles appear at the leading/trailing edge) to
-    trim it — trimming the front keeps the remaining audio's absolute timing intact
-    (the clip's start position moves right to match what was cut); trimming the back
-    just shortens it.
-  - **Long-press → "Delete Recording"** removes that take entirely. If it was the
-    only clip on that track, the whole (now-empty) track row disappears too.
-- **Playhead**: a bright vertical line with a soft glow, showing current position.
-  Advances live during playback, and also advances live during recording (so you can
-  see time passing even if you're recording without anything else playing).
+  - **Tap** a take to select it. Trim handles appear on it and a floating
+    **Split / Delete** bar appears above the transport.
+  - **Drag a handle** to trim that edge, live. Trimming the front keeps the audio's
+    absolute timing (the clip's start moves to match). Edges snap to the project
+    start, the playhead and neighbouring clip edges, with a haptic.
+  - **Split** cuts the selected clip at the playhead into two clips on the same
+    track (only offered when the playhead is inside the clip). Both halves point at
+    the same file with different trims — nothing is re-encoded.
+  - **Long-press, then drag** moves a take. The press is what stops a move from
+    fighting the scroll-to-scrub gesture: a plain drag scrolls, a held drag picks
+    the clip up.
+  - **Delete** removes the selected clip. If it was the track's last clip the row
+    goes too.
+- **Live recording lane**: while capturing, a red lane grows from the record
+  start under the playhead.
 
-### 3. Track panel (sheet, slides up from the bottom)
+### 3. Transport (floating, bottom)
 
-Opened by tapping any track header. Always shows:
+Rewind, Play/Pause (large, filled), Record (ring that morphs to a square while
+recording). Rewind is disabled while recording.
 
-- **Volume** — a slider (0–150%) with a simple level-meter visual, applies to that
-  track only.
+### 4. Track panel (sheet, slides up from the bottom)
 
-For vocal/recording tracks only (not plain instrumental tracks), the panel also
-shows:
+Opened by tapping any track header. Always shows **Volume**. For vocal/recording
+tracks it also shows **Autotune** (Aria Plus — locked with a badge; tapping opens
+the paywall placeholder), **Reverb** and **EQ**.
 
-- **Reverb** — wet/dry mix slider with a decay-bar visual.
-- **EQ** — four-band parametric EQ (bass/low-mid/high-mid/treble) with a live curve
-  visual.
-- **Autotune** — ⚠️ **visual only, not functional.** Key/scale picker and
-  amount/retune-speed sliders are all present and respond to touch, but nothing is
-  connected behind them — no pitch correction happens. This is real UI sitting in
-  front of an unbuilt feature; don't treat it as a working control when designing
-  around it.
-
-Renaming the project happens from a pencil icon in the editor's top bar — opens a
-custom name-entry card (not a system dialog), matching the rest of the app's visual
-language.
+Renaming the project is in the "…" menu in the navigation bar (custom card, not
+a system dialog). Stem separation is a navigation-bar button.
 
 ### Stem separation ("Separate" button)
 
@@ -173,16 +159,38 @@ Instant-record projects (started from the red record button) have no real source
 audio — the silent placeholder is hidden rather than shown as a fake clip, and the
 Separate button doesn't appear for them.
 
-## Screen: Settings
+## Screen: Settings (sheet)
 
-Placeholder only. Icon, "Settings," "App preferences and account." No actual
-settings exist yet — nothing to design around here except a future entry point.
+Native inset-grouped list, close button top-left. Top to bottom:
+
+- **Upgrade to Aria Plus** banner (hidden once Plus is active) → paywall
+  placeholder. Autotune is the first Plus-only feature; StoreKit is not wired.
+- **Appearance** → App Theme (System / Light / Dark) and Background (Minimal /
+  Plain), each as a row of preview cards.
+- **Storage**: per-folder usage, Clean Up Unused Files.
+- **Support**: Contact Support (mailto, subject pre-filled with the version), Rate,
+  Share.
+- **Legal**: Terms, Privacy.
+- **Delete All Projects** (red, confirmed).
+- Footer: wordmark and version.
+
+Support email, legal URLs, product names and the version string all come from
+`Core/AppConfig.swift` — one place to edit.
+
+## Localization
+
+User-facing strings are `LocalizedStringKey`s / `String(localized:)` and are
+collected into `Resources/Localization/Localizable.xcstrings` at build time
+(String Catalogs). Add a language in the catalog editor; nothing is fetched at
+runtime.
 
 ## Things that look real but aren't (flag for design)
 
 - **Autotune panel** — fully interactive UI, zero effect on audio. See above.
-- **Waveforms** — every waveform shown anywhere (project cards, clips in the
-  timeline) is a deterministic decorative pattern, not derived from real audio.
+- **Waveforms on project cards** are decorative. Clips in the timeline draw real
+  peaks.
+- **Aria Plus** — the banner, paywall and Autotune lock are real UI with no
+  purchase behind them (`AppConfig.Plus.purchasingEnabled` is false).
 - **Reverb/EQ/Volume settings don't persist** — they apply live during the session
   but reset to defaults the next time you open the project. Re-adjust each time, for
   now.

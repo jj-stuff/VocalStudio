@@ -1,11 +1,18 @@
 import SwiftUI
 
+/// The studio. Three layers, bottom to top: the app background, the readout plus
+/// timeline, and a floating control layer (clip actions, transport) over the
+/// bottom edge. The timeline scrolls under the control layer, which is what earns
+/// the glass on it.
 struct EditorView: View {
     @State var viewModel: EditorViewModel
 
     @State private var showingRename = false
     @State private var pendingTitle = ""
     @FocusState private var renameFieldFocused: Bool
+
+    /// Room the timeline leaves under the floating controls.
+    private let controlsClearance: CGFloat = 150
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -15,7 +22,7 @@ struct EditorView: View {
     }
 
     // Bridges the track-selection state into a sheet-presented Bool. Every track kind
-    // gets a sheet now (volume applies to all of them) — only the effects tiles inside
+    // gets a sheet (volume applies to all of them) — only the effects tiles inside
     // are conditional on effectsApplicable. When the sheet is drag-dismissed, the
     // binding setter deselects the track.
     private var showEffectsSheet: Binding<Bool> {
@@ -27,45 +34,18 @@ struct EditorView: View {
 
     var body: some View {
         ZStack {
-            background
+            AppBackground()
 
             VStack(spacing: 0) {
-                TransportBarView(
+                TimeReadoutView(
                     currentTime: viewModel.currentTime,
                     duration: viewModel.duration,
-                    isPlaying: viewModel.transportActive,
-                    isRecording: viewModel.isRecording,
-                    stemStatus: viewModel.stemStatus,
-                    showsSeparate: viewModel.canSeparateStems,
-                    onTogglePlayback: viewModel.togglePlayback,
-                    onRewind: viewModel.rewind,
-                    onToggleRecord: viewModel.toggleRecording,
-                    onSeparateStems: viewModel.startStemSeparation
+                    isRecording: viewModel.isRecording
                 )
-                .padding(.horizontal, DS.Spacing.md)
-                .padding(.top, DS.Spacing.sm)
-                .padding(.bottom, DS.Spacing.xs)
+                .padding(.top, DS.Spacing.xs)
+                .padding(.bottom, DS.Spacing.sm)
 
-                EditorTimelineView(
-                    tracks: viewModel.tracks,
-                    currentTime: viewModel.currentTime,
-                    duration: viewModel.duration,
-                    recordingRange: viewModel.recordingRange,
-                    selectedTrackID: viewModel.selectedTrackID,
-                    onSelectTrack: viewModel.selectTrack,
-                    onMuteTrack: viewModel.toggleMute,
-                    onMoveClip: { trackID, clipID, offset in
-                        viewModel.moveClip(id: clipID, inTrack: trackID, to: offset)
-                    },
-                    onTrimClip: { trackID, clipID, trimStart, trimEnd, offset in
-                        viewModel.trimClip(id: clipID, inTrack: trackID, trimStart: trimStart, trimEnd: trimEnd, timelineOffset: offset)
-                    },
-                    onDeleteClip: { trackID, clipID in
-                        viewModel.deleteClip(id: clipID, inTrack: trackID)
-                    },
-                    onScrub: viewModel.seek
-                )
-                .frame(maxHeight: .infinity)
+                timeline
             }
 
             if showingRename {
@@ -74,23 +54,34 @@ struct EditorView: View {
                     .zIndex(30)
             }
         }
+        .overlay(alignment: .bottom) { controls }
         .navigationTitle(viewModel.project.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    pendingTitle = viewModel.project.title
-                    withAnimation(DS.Animation.spring) { showingRename = true }
-                } label: {
-                    Image(systemName: "pencil")
+            if viewModel.canSeparateStems {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SeparateButton(status: viewModel.stemStatus, action: viewModel.startStemSeparation)
                 }
-                .accessibilityLabel("Rename project")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        pendingTitle = viewModel.project.title
+                        withAnimation(DS.Animation.spring) { showingRename = true }
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More")
             }
         }
-        .preference(key: TabBarHiddenKey.self, value: true)
         .animation(DS.Animation.spring, value: viewModel.stemStatus)
+        .animation(DS.Animation.spring, value: viewModel.selectedClipID)
         .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isRecording)
         .sensoryFeedback(.selection, trigger: viewModel.selectedTrackID)
+        .sensoryFeedback(.selection, trigger: viewModel.selectedClipID)
         .sensoryFeedback(trigger: viewModel.stemStatus) { _, newStatus in
             switch newStatus {
             case .done: .success
@@ -110,6 +101,58 @@ struct EditorView: View {
         }
     }
 
+    // MARK: - Timeline
+
+    private var timeline: some View {
+        EditorTimelineView(
+            tracks: viewModel.tracks,
+            currentTime: viewModel.currentTime,
+            duration: viewModel.duration,
+            isRecording: viewModel.isRecording,
+            recordingRange: viewModel.recordingRange,
+            selectedTrackID: viewModel.selectedTrackID,
+            selectedClipID: viewModel.selectedClipID,
+            bottomInset: controlsClearance,
+            onSelectTrack: viewModel.selectTrack,
+            onMuteTrack: viewModel.toggleMute,
+            onSelectClip: viewModel.selectClip,
+            onMoveClip: { trackID, clipID, offset in
+                viewModel.moveClip(id: clipID, inTrack: trackID, to: offset)
+            },
+            onTrimClip: { trackID, clipID, trimStart, trimEnd, offset in
+                viewModel.trimClip(id: clipID, inTrack: trackID, trimStart: trimStart, trimEnd: trimEnd, timelineOffset: offset)
+            },
+            onBeginScrub: viewModel.beginScrub,
+            onScrub: viewModel.scrub,
+            onEndScrub: viewModel.endScrub
+        )
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card))
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    // MARK: - Floating controls
+
+    private var controls: some View {
+        VStack(spacing: DS.Spacing.sm) {
+            if viewModel.selectedClip != nil {
+                ClipActionBar(
+                    canSplit: viewModel.canSplitSelectedClip,
+                    onSplit: viewModel.splitSelectedClip,
+                    onDelete: viewModel.deleteSelectedClip
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            TransportBarView(
+                isPlaying: viewModel.transportActive,
+                isRecording: viewModel.isRecording,
+                onTogglePlayback: viewModel.togglePlayback,
+                onRewind: viewModel.rewind,
+                onToggleRecord: viewModel.toggleRecording
+            )
+        }
+        .padding(.bottom, DS.Spacing.sm)
+    }
+
     // MARK: - Rename overlay (custom — never the native alert/TextField)
 
     private var renameOverlay: some View {
@@ -120,19 +163,11 @@ struct EditorView: View {
                 .onTapGesture(perform: dismissRename)
 
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-                VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
-                    Text("RENAME")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(2)
-                    Text("Name this project")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.primary)
-                }
+                Text("Rename Project")
+                    .font(.title3.weight(.semibold))
 
                 TextField("Project name", text: $pendingTitle)
                     .font(.body)
-                    .foregroundStyle(.primary)
                     .padding(DS.Spacing.md)
                     .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: DS.Radius.md))
                     .autocorrectionDisabled()
@@ -142,26 +177,17 @@ struct EditorView: View {
 
                 HStack(spacing: DS.Spacing.sm) {
                     Button("Cancel", action: dismissRename)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DS.Spacing.sm + DS.Spacing.xxs)
-                    .glassEffect(in: .capsule)
-                    .buttonStyle(.plain)
+                        .buttonStyle(.glass)
+                        .frame(maxWidth: .infinity)
 
-                    Button(action: commitRename) {
-                        Text("Save")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Color(.systemBackground))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, DS.Spacing.sm + DS.Spacing.xxs)
-                            .background(Color.primary, in: .capsule)
-                    }
-                    .buttonStyle(.plain)
+                    Button("Save", action: commitRename)
+                        .buttonStyle(.glassProminent)
+                        .tint(.primary)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .padding(DS.Spacing.xl)
-            .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: DS.Radius.hero))
             .padding(.horizontal, DS.Spacing.lg)
         }
         .ignoresSafeArea(.container)
@@ -190,13 +216,13 @@ struct EditorView: View {
         if let track = viewModel.selectedTrack {
             NavigationStack {
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: DS.Spacing.md) {
                         VolumeTileView(
                             volume: track.volume,
                             onVolumeChange: viewModel.updateVolume
                         )
                         if track.effectsApplicable {
-                            AutotuneTileView()
+                            PlusGate { AutotuneTileView() }
                             ReverbTileView(
                                 reverbMix: track.effects.reverbMix,
                                 onReverbChange: viewModel.updateReverb
@@ -207,14 +233,12 @@ struct EditorView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 20)
+                    .padding(.horizontal, DS.Spacing.md)
+                    .padding(.vertical, DS.Spacing.lg)
                 }
                 .scrollIndicators(.hidden)
-                // Grouped background so the flat white tiles read as cards — on the
-                // sheet's default plain background they'd disappear in light mode.
-                .background(Color(.systemGroupedBackground))
-                .navigationTitle(track.effectsApplicable ? "\(track.name) Effects" : track.name)
+                .background(AppBackground())
+                .navigationTitle(track.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -232,13 +256,57 @@ struct EditorView: View {
             .id(track.id)
         }
     }
+}
 
-    // MARK: - Background
+// MARK: - Separate (stem split) button
 
-    private var background: some View {
-        // Flat system background — the editor's chrome (transport card, timeline
-        // grid) provides the structure; the canvas itself stays quiet.
-        Color(.systemGroupedBackground)
-            .ignoresSafeArea()
+/// Stem separation, as a navigation bar item. Idle it's a button; running it's a
+/// progress ring with the percentage; done it's a checkmark; failed it's Retry.
+/// Nothing blocks — the editor stays fully usable during separation.
+private struct SeparateButton: View {
+    let status: StemSeparationStatus
+    let action: () -> Void
+
+    var body: some View {
+        switch status {
+        case .idle:
+            Button(action: action) {
+                Label("Separate", systemImage: "waveform.badge.plus")
+            }
+            .tint(DS.Brand.purple2)
+            .accessibilityLabel("Separate vocals from instrumental")
+
+        case .running(let progress):
+            HStack(spacing: DS.Spacing.xs) {
+                if progress > 0 {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.footnote.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Preparing…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Separating, \(Int(progress * 100)) percent")
+
+        case .done:
+            Label("Separated", systemImage: "checkmark")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+        case .failed:
+            Button(action: action) {
+                Label("Retry", systemImage: "exclamationmark.arrow.circlepath")
+            }
+            .tint(.orange)
+        }
     }
 }

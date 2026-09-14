@@ -61,7 +61,7 @@ struct Track: Identifiable {
                 let clip = AudioClip(url: project.sourceURL, timelineOffset: 0)
                 tracks.append(Track(
                     id: UUID(),
-                    name: "Source",
+                    name: String(localized: "Source"),
                     kind: .instrumental,
                     clips: [clip]
                 ))
@@ -72,7 +72,7 @@ struct Track: Identifiable {
                 let kind: Kind = stem.kind == .instrumental ? .instrumental : .vocal
                 tracks.append(Track(
                     id: stem.id,
-                    name: stem.kind == .instrumental ? "Instrumental" : "Vocals",
+                    name: stem.kind == .instrumental ? String(localized: "Instrumental") : String(localized: "Vocals"),
                     kind: kind,
                     clips: [clip],
                     isMuted: stem.isMuted
@@ -83,22 +83,28 @@ struct Track: Identifiable {
         if let existingRecordingTracks {
             tracks.append(contentsOf: existingRecordingTracks)
         } else {
-            for (index, recording) in project.recordings.enumerated() {
-                let clip = AudioClip(
-                    url: recording.url,
-                    timelineOffset: recording.timelineOffset,
-                    trimStart: recording.trimStart,
-                    trimEnd: recording.trimEnd
-                )
-                tracks.append(Track(
-                    id: UUID(),
-                    name: "Take \(index + 1)",
-                    kind: .userRecording(index: index),
-                    clips: [clip]
-                ))
-            }
+            tracks.append(contentsOf: recordingTracks(from: project.recordings))
         }
 
         return tracks
+    }
+
+    /// One track per take, in first-appearance order, holding every clip that shares
+    /// the take's `takeID` (a split take is several recordings on one track).
+    static func recordingTracks(from recordings: [Recording]) -> [Track] {
+        var order: [UUID] = []
+        var clipsByTake: [UUID: [AudioClip]] = [:]
+        for recording in recordings {
+            if clipsByTake[recording.takeID] == nil { order.append(recording.takeID) }
+            clipsByTake[recording.takeID, default: []].append(recording.clip)
+        }
+        return order.enumerated().map { index, takeID in
+            Track(
+                id: takeID,
+                name: String(localized: "Take \(index + 1)"),
+                kind: .userRecording(index: index),
+                clips: (clipsByTake[takeID] ?? []).sorted { $0.timelineOffset < $1.timelineOffset }
+            )
+        }
     }
 }

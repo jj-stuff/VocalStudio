@@ -1,73 +1,43 @@
 import SwiftUI
 
+/// The transport: rewind, play/pause, record. Floats over the bottom of the
+/// timeline as one Liquid Glass slab, which is earned here — the lanes scroll
+/// horizontally straight underneath it, so the glass has something to refract.
+///
+/// The time readout is not in here any more; it sits above the timeline where the
+/// eye already is when scrubbing. Stem separation moved to the navigation bar.
 struct TransportBarView: View {
-    let currentTime: TimeInterval
-    let duration: TimeInterval
     /// True while the transport is running — playback, or an actively-capturing
     /// recording (a paused recording shows the play icon again).
     let isPlaying: Bool
     let isRecording: Bool
-    let stemStatus: StemSeparationStatus
-    /// Hidden for instant-record projects — their silent placeholder source has
-    /// nothing to separate.
-    let showsSeparate: Bool
     let onTogglePlayback: () -> Void
     let onRewind: () -> Void
     let onToggleRecord: () -> Void
-    let onSeparateStems: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
-            HStack {
-                timeDisplay
-                Spacer()
-                if showsSeparate {
-                    separateButton
-                }
-            }
-
-            HStack(spacing: 32) {
+        GlassEffectContainer(spacing: DS.Spacing.lg) {
+            HStack(spacing: DS.Spacing.lg) {
                 rewindButton
                 playPauseButton
                 recordButton
             }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        // Fully rounded on all four corners — this bar floats as its own island, with
-        // margin around it (added by the caller) rather than sitting flush against the
-        // nav bar and screen edges.
-        .glassEffect(in: RoundedRectangle(cornerRadius: DS.Radius.hero))
-        .overlay(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: DS.Radius.hero)
-                .stroke(Color(.separator).opacity(0.6), lineWidth: 0.5)
-        }
-    }
-
-    // MARK: - Subviews
-
-    private var timeDisplay: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // Monospaced timestamps — the digits don't jitter horizontally as they
-            // tick, and it reads as a player readout rather than body text.
-            Text(formatTime(currentTime))
-                .font(.system(.title, design: .monospaced, weight: .semibold))
-                .foregroundStyle(.primary)
-            Text(formatTime(duration))
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.tertiary)
+            .padding(.horizontal, DS.Spacing.md)
+            .padding(.vertical, DS.Spacing.xs)
+            .glassEffect(.regular, in: .capsule)
         }
     }
 
     private var rewindButton: some View {
         Button(action: onRewind) {
             Image(systemName: "backward.end.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(.secondary)
-                .frame(width: 52, height: 52)
-                .glassEffect(in: Circle())
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 48, height: 48)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .foregroundStyle(isRecording ? .tertiary : .primary)
+        .disabled(isRecording)
         .accessibilityLabel("Rewind to start")
     }
 
@@ -75,10 +45,10 @@ struct TransportBarView: View {
         Button(action: onTogglePlayback) {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(.primary)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 64, height: 64)
-                .glassEffect(in: Circle())
+                .foregroundStyle(Color(.systemBackground))
+                .background(Color.primary, in: Circle())
         }
         .buttonStyle(.plain)
         .animation(DS.Animation.smooth, value: isPlaying)
@@ -89,99 +59,20 @@ struct TransportBarView: View {
         Button(action: onToggleRecord) {
             ZStack {
                 Circle()
-                    .fill(isRecording ? Color.red : Color.red.opacity(0.15))
-                    .frame(width: 40, height: 40)
+                    .stroke(Color.red, lineWidth: 2.5)
+                    .frame(width: 34, height: 34)
                 // One shape morphing circle ⇄ square (the Camera/Voice Memos record
                 // affordance) instead of swapping two views, so the corner radius
-                // and color animate as a single continuous gesture.
-                RoundedRectangle(cornerRadius: isRecording ? 4 : 8)
-                    .fill(isRecording ? Color.white : Color.red)
-                    .frame(width: 16, height: 16)
+                // animates as a single continuous gesture.
+                RoundedRectangle(cornerRadius: isRecording ? 4 : 13)
+                    .fill(Color.red)
+                    .frame(width: isRecording ? 16 : 26, height: isRecording ? 16 : 26)
             }
-            .frame(width: 52, height: 52)
+            .frame(width: 48, height: 48)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .animation(DS.Animation.spring, value: isRecording)
         .accessibilityLabel(isRecording ? "Stop recording" : "Start recording")
-    }
-
-    // MARK: - Separate (stem split) button
-    //
-    // Renamed from "Split" — first-time users read "split" as a cut/trim action.
-    // "Separate" matches what the feature actually does (vocals vs. instrumental).
-
-    private var separateButton: some View {
-        Group {
-            switch stemStatus {
-            case .idle:
-                Button(action: onSeparateStems) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "waveform.badge.plus")
-                            .font(.system(size: 16))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Separate")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Vocals / Instrumental")
-                                .font(.system(size: 10, weight: .medium))
-                                .opacity(0.7)
-                        }
-                    }
-                    .foregroundStyle(DS.Brand.purple1)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .glassEffect(in: .capsule)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Separate vocals from instrumental")
-
-            case .running(let p):
-                // This is the only progress surface (no blocking overlay), so it
-                // has to carry the state by itself: spinner + label on one line
-                // while the ~100MB model loads, then a determinate bar with a live
-                // percentage. The editor stays fully usable the whole time.
-                if p > 0 {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ProgressView(value: p)
-                            .progressViewStyle(.linear)
-                            .tint(DS.Brand.purple1)
-                            .frame(width: 88)
-                        Text("Separating… \(Int(p * 100))%")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Preparing…")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-            case .done:
-                Label("Separated", systemImage: "checkmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-            case .failed:
-                Button(action: onSeparateStems) {
-                    Label("Retry", systemImage: "exclamationmark.arrow.circlepath")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .glassEffect(in: .capsule)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func formatTime(_ t: TimeInterval) -> String {
-        let m = Int(t) / 60
-        let s = Int(t) % 60
-        let ms = Int((t.truncatingRemainder(dividingBy: 1)) * 10)
-        return String(format: "%d:%02d.%d", m, s, ms)
     }
 }

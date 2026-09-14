@@ -1,239 +1,204 @@
 import SwiftUI
 
+/// The multi-track timeline, built around a **fixed playhead**.
+///
+/// The playhead is a static overlay; the content scrolls beneath it. That makes
+/// scrolling and scrubbing the same gesture — there is no separate "drag the
+/// ruler" or "tap to seek", the ScrollView's own physics (momentum, rubber-band)
+/// do the work — and it is the model Voice Memos, GarageBand and Logic use on
+/// iPhone. The only other single-finger gestures on the timeline are on clips
+/// (tap, handle drag, long-press-to-move), and those are designed not to overlap
+/// with a plain drag.
+///
+/// Playback drives the scroll offset; user scrolling drives the playhead. The two
+/// never fight because scroll phases tell us who is in charge: while the user is
+/// touching or the scroll is decelerating, offset changes are scrubs and playback
+/// is paused; the rest of the time offset changes come from us and are ignored.
 struct EditorTimelineView: View {
     let tracks: [Track]
     let currentTime: TimeInterval
     let duration: TimeInterval
+    let isRecording: Bool
     /// Span of an in-flight recording. Non-nil while capturing: the timeline shows
     /// a live, growing red lane for it, so the take is visible before it's stopped.
     let recordingRange: ClosedRange<TimeInterval>?
     let selectedTrackID: UUID?
+    let selectedClipID: UUID?
+    /// Space to leave at the bottom so the last lane can scroll out from under the
+    /// floating transport bar.
+    let bottomInset: CGFloat
+
     let onSelectTrack: (UUID) -> Void
     let onMuteTrack: (UUID) -> Void
+    let onSelectClip: (UUID?) -> Void
     let onMoveClip: (UUID, UUID, TimeInterval) -> Void  // (trackID, clipID, newOffset)
     let onTrimClip: (UUID, UUID, TimeInterval, TimeInterval, TimeInterval) -> Void  // (trackID, clipID, trimStart, trimEnd, newOffset)
-    let onDeleteClip: (UUID, UUID) -> Void  // (trackID, clipID)
+    let onBeginScrub: () -> Void
     let onScrub: (TimeInterval) -> Void
+    let onEndScrub: () -> Void
 
-    @State private var zoom: CGFloat = 80  // pixels per second, committed value
-    @GestureState private var pinchScale: CGFloat = 1.0
+    @State private var zoom: CGFloat = TimelineGeometry.defaultZoom
+    @GestureState private var pinchScale: CGFloat = 1
+    @State private var scrollPosition = ScrollPosition()
+    /// True while a scroll is user-driven (touching, or coasting after a flick).
+    @State private var isUserScrolling = false
 
     private static let headerWidth: CGFloat = 64
-    private static let trackHeight: CGFloat = 100
-    private static let rulerHeight: CGFloat = 24
-    private static let zoomRange: ClosedRange<CGFloat> = 20...400
+    private static let trackHeight: CGFloat = 88
+    private static let rulerHeight: CGFloat = 22
 
     /// Rows drawn = real tracks plus the live recording lane while capturing.
     private var rowCount: Int { tracks.count + (recordingRange == nil ? 0 : 1) }
-
-    /// What layout actually uses — `zoom` scaled live by an in-flight pinch, so the
-    /// timeline visibly zooms while you pinch instead of only snapping at the end.
-    private var effectiveZoom: CGFloat { zoom * pinchScale }
+    private var lanesHeight: CGFloat { Self.rulerHeight + CGFloat(rowCount) * Self.trackHeight }
 
     var body: some View {
-        GeometryReader { geo in
-            let totalWidth = max(
-                geo.size.width - Self.headerWidth,
-                CGFloat(duration) * effectiveZoom + 200
+        GeometryReader { proxy in
+            let geometry = TimelineGeometry(
+                pixelsPerSecond: (zoom * pinchScale).clamped(to: TimelineGeometry.zoomRange),
+                viewportWidth: max(1, proxy.size.width - Self.headerWidth),
+                duration: duration
             )
 
-            HStack(spacing: 0) {
-                // Fixed left column — track headers
-                VStack(spacing: 1) {
-                    Color.clear.frame(height: Self.rulerHeight + 1)
+            ScrollView(.vertical) {
+                HStack(alignment: .top, spacing: 0) {
+                    headerColumn
+                        .frame(width: Self.headerWidth, height: lanesHeight)
 
-                    ForEach(tracks) { track in
-                        TrackHeaderView(
-                            track: track,
-                            isSelected: selectedTrackID == track.id,
-                            onTap: { onSelectTrack(track.id) },
-                            onMute: { onMuteTrack(track.id) }
-                        )
-                        .frame(height: Self.trackHeight)
-                    }
-
-                    if recordingRange != nil {
-                        RecordingHeaderView()
-                            .frame(height: Self.trackHeight)
-                    }
+                    horizontalTimeline(geometry)
+                        .frame(height: lanesHeight)
                 }
-                .frame(width: Self.headerWidth)
-                .background(Color(.systemBackground).opacity(0.06))
-
-                // Scrollable right area
-                ScrollView(.horizontal, showsIndicators: false) {
-                    ZStack(alignment: .topLeading) {
-                        VStack(spacing: 0) {
-                            RulerView(duration: duration + 10, pixelsPerSecond: effectiveZoom)
-                                .frame(width: totalWidth, height: Self.rulerHeight)
-                                .contentShape(Rectangle())
-                                // highPriorityGesture, not gesture — the ruler lives inside a
-                                // horizontal ScrollView, whose own pan recognizer otherwise wins
-                                // a plain .gesture() since both interpret the same horizontal
-                                // drag. This is why scrubbing never did anything.
-                                .highPriorityGesture(scrubGesture)
-
-                            Rectangle()
-                                .fill(Color(.separator))
-                                .frame(width: totalWidth, height: 1)
-
-                            ForEach(tracks) { track in
-                                TrackClipAreaView(
-                                    track: track,
-                                    pixelsPerSecond: effectiveZoom,
-                                    totalWidth: totalWidth,
-                                    onMoveClip: { clipID, newOffset in
-                                        onMoveClip(track.id, clipID, newOffset)
-                                    },
-                                    onTrimClip: { clipID, trimStart, trimEnd, newOffset in
-                                        onTrimClip(track.id, clipID, trimStart, trimEnd, newOffset)
-                                    },
-                                    onDeleteClip: { clipID in onDeleteClip(track.id, clipID) },
-                                    onSeek: onScrub
-                                )
-                                .frame(height: Self.trackHeight)
-
-                                Rectangle()
-                                    .fill(Color(.separator).opacity(0.6))
-                                    .frame(width: totalWidth, height: 1)
-                            }
-
-                            if let recordingRange {
-                                RecordingLaneView(range: recordingRange, pixelsPerSecond: effectiveZoom)
-                                    .frame(width: totalWidth, height: Self.trackHeight)
-
-                                Rectangle()
-                                    .fill(Color(.separator).opacity(0.6))
-                                    .frame(width: totalWidth, height: 1)
-                            }
-                        }
-
-                        // Playhead — full height
-                        let playheadH = Self.rulerHeight + CGFloat(rowCount) * (Self.trackHeight + 1)
-                        Group {
-                            Capsule()
-                                .fill(Color.primary.opacity(0.85))
-                                .frame(width: 2.5, height: playheadH)
-                                .offset(x: CGFloat(currentTime) * effectiveZoom - 1.25)
-
-                            Capsule()
-                                .fill(Color.primary.opacity(0.25))
-                                .frame(width: 5, height: playheadH)
-                                .blur(radius: 3)
-                                .offset(x: CGFloat(currentTime) * effectiveZoom - 2.5)
-                        }
-                        .allowsHitTesting(false)
-                    }
-                    .frame(width: totalWidth)
-                }
-                .simultaneousGesture(pinchGesture)
+                // A finished take slides its new row in instead of popping, and the
+                // live recording lane appears/disappears the same way.
+                .animation(DS.Animation.spring, value: rowCount)
             }
-            // A finished take slides its new row in instead of popping, and the
-            // live recording lane appears/disappears the same way.
-            .animation(DS.Animation.spring, value: rowCount)
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .scrollIndicators(.hidden)
+            .simultaneousGesture(pinchGesture)
+            // Playback (and recording) pull the content along under the playhead.
+            .onChange(of: currentTime) { follow(geometry) }
+            // Zooming keeps the time under the playhead fixed — the pinch is anchored
+            // at the playhead, not at the fingers, so it never feels like it drifts.
+            .onChange(of: geometry.pixelsPerSecond) { follow(geometry) }
+            .onAppear { follow(geometry) }
         }
-        .background(Color(.systemBackground).opacity(0.08))
+        .background(Color(.systemBackground).opacity(0.35))
     }
 
-    // MARK: - Scrubbing
+    // MARK: - Header column
 
-    /// Tap or drag along the ruler to move the playhead. `location.x` is already in
-    /// the scrollable content's own coordinate space (the gesture lives inside the
-    /// ScrollView's content), so it converts to seconds with no extra offsetting.
-    private var scrubGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                onScrub(max(0, min(duration, Double(value.location.x / effectiveZoom))))
+    private var headerColumn: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: Self.rulerHeight)
+            ForEach(tracks) { track in
+                TrackHeaderView(
+                    track: track,
+                    isSelected: selectedTrackID == track.id,
+                    onTap: { onSelectTrack(track.id) },
+                    onMute: { onMuteTrack(track.id) }
+                )
+                .frame(height: Self.trackHeight)
             }
+            if recordingRange != nil {
+                RecordingHeaderView()
+                    .frame(height: Self.trackHeight)
+            }
+        }
+        .background(.thinMaterial)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Color(.separator)).frame(width: 0.5)
+        }
+    }
+
+    // MARK: - Scrolling timeline
+
+    private func horizontalTimeline(_ geometry: TimelineGeometry) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 0) {
+                // Leading pad: lets time 0 reach the playhead.
+                Color.clear.frame(width: geometry.leadingPadding)
+                lanes(geometry)
+                    .frame(width: geometry.timelineWidth)
+                // Trailing pad: lets the end of the project reach the playhead.
+                Color.clear.frame(width: geometry.trailingPadding)
+            }
+        }
+        .scrollPosition($scrollPosition)
+        .scrollIndicators(.hidden)
+        .onScrollPhaseChange { _, newPhase in
+            let userDriven = newPhase == .tracking || newPhase == .interacting || newPhase == .decelerating
+            guard userDriven != isUserScrolling else { return }
+            isUserScrolling = userDriven
+            if userDriven { onBeginScrub() } else { onEndScrub() }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { scroll in
+            scroll.contentOffset.x
+        } action: { _, offset in
+            // Only the user's scrolls are scrubs. Our own `scrollTo` calls during
+            // playback also land here, and feeding those back would seek the
+            // engine to the position it just reported.
+            guard isUserScrolling else { return }
+            onScrub(geometry.time(forOffset: offset))
+        }
+        .overlay(alignment: .topLeading) {
+            PlayheadView(isRecording: isRecording)
+                .frame(height: lanesHeight)
+                .offset(x: geometry.playheadX - 5)
+        }
+    }
+
+    private func lanes(_ geometry: TimelineGeometry) -> some View {
+        VStack(spacing: 0) {
+            RulerView(geometry: geometry)
+                .frame(height: Self.rulerHeight)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color(.separator)).frame(height: 0.5)
+                }
+
+            ForEach(tracks) { track in
+                TrackLaneView(
+                    track: track,
+                    geometry: geometry,
+                    selectedClipID: selectedClipID,
+                    playheadTime: currentTime,
+                    onSelectClip: onSelectClip,
+                    onMoveClip: { clipID, newOffset in onMoveClip(track.id, clipID, newOffset) },
+                    onTrimClip: { clipID, trimStart, trimEnd, offset in
+                        onTrimClip(track.id, clipID, trimStart, trimEnd, offset)
+                    }
+                )
+                .frame(height: Self.trackHeight)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color(.separator).opacity(0.5)).frame(height: 0.5)
+                }
+            }
+
+            if let recordingRange {
+                RecordingLaneView(range: recordingRange, geometry: geometry)
+                    .frame(height: Self.trackHeight)
+            }
+        }
+    }
+
+    // MARK: - Follow
+
+    /// Scrolls so `currentTime` sits under the playhead — unless the user is the
+    /// one scrolling, in which case they are telling *us* where the playhead is.
+    private func follow(_ geometry: TimelineGeometry) {
+        guard !isUserScrolling else { return }
+        scrollPosition.scrollTo(x: geometry.offset(for: currentTime))
     }
 
     // MARK: - Pinch to zoom
 
-    /// Two-finger pinch, scaling live during the gesture (via `effectiveZoom`) and
-    /// committing to `zoom` on release. Pinch rather than a +/- button because
-    /// MagnificationGesture is a distinct two-touch recognizer — it coexists with the
-    /// ScrollView's single-finger pan instead of competing with it for the same touch,
-    /// unlike every single-finger drag gesture in this file.
+    /// Two-finger pinch, scaling live during the gesture (via `pinchScale`) and
+    /// committing to `zoom` on release. A pinch is a distinct two-touch recognizer,
+    /// so it coexists with the ScrollView's single-finger pan instead of competing
+    /// with it for the same touch.
     private var pinchGesture: some Gesture {
-        MagnificationGesture()
-            .updating($pinchScale) { value, state, _ in state = value }
+        MagnifyGesture()
+            .updating($pinchScale) { value, state, _ in state = value.magnification }
             .onEnded { value in
-                zoom = (zoom * value).clamped(to: Self.zoomRange)
+                zoom = (zoom * value.magnification).clamped(to: TimelineGeometry.zoomRange)
             }
-    }
-}
-
-private extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        // Swift.min/max, fully qualified — inside an extension on CGFloat, the bare
-        // names resolve to CGFloat's own static members instead of the global
-        // comparison functions.
-        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
-    }
-}
-
-// MARK: - Live recording row
-
-/// Header for the in-flight recording lane — a pulsing red dot so it clearly reads
-/// as "capturing right now", not another finished take.
-private struct RecordingHeaderView: View {
-    var body: some View {
-        VStack(spacing: 3) {
-            ZStack {
-                Circle()
-                    .fill(Color.red.opacity(0.15))
-                    .frame(width: 30, height: 30)
-                // symbolEffect animates SF Symbols only, hence an Image, not a Circle.
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.red)
-                    .symbolEffect(.pulse)
-            }
-            Text("Recording")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.red)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            Color.red.opacity(0.06),
-            in: UnevenRoundedRectangle(
-                topLeadingRadius: DS.Radius.sm, bottomLeadingRadius: DS.Radius.sm,
-                bottomTrailingRadius: 0, topTrailingRadius: 0
-            )
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Recording in progress")
-    }
-}
-
-/// The growing clip for the take being captured. Purely visual — the real,
-/// editable clip replaces it the moment recording stops.
-private struct RecordingLaneView: View {
-    let range: ClosedRange<TimeInterval>
-    let pixelsPerSecond: CGFloat
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            Color(.systemBackground).opacity(0.04)
-
-            RoundedRectangle(cornerRadius: 6)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.55, green: 0.10, blue: 0.15),
-                                 Color(red: 0.38, green: 0.06, blue: 0.10)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.red.opacity(0.6), lineWidth: 1)
-                }
-                .frame(width: max(4, (range.upperBound - range.lowerBound) * pixelsPerSecond))
-                .padding(.vertical, DS.Spacing.xs)
-                .offset(x: range.lowerBound * pixelsPerSecond)
-        }
-        .allowsHitTesting(false)
     }
 }

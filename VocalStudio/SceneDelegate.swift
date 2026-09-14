@@ -17,7 +17,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     ) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
-        let root = UIHostingController(rootView: MainTabView(store: store))
+        let root = UIHostingController(rootView: RootView(store: store))
         root.view.backgroundColor = .systemBackground
 
         window = UIWindow(windowScene: windowScene)
