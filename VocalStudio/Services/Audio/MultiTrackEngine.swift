@@ -170,7 +170,7 @@ final class MultiTrackEngine {
             sampleRate: audioFormat.sampleRate
         ))
 
-        duration = max(duration, updatedClip.timelineEnd)
+        recomputeDuration()
         return updatedClip
     }
 
@@ -319,7 +319,7 @@ final class MultiTrackEngine {
     func updateClip(_ clip: AudioClip, trackID: UUID) {
         guard let index = loadedClips.firstIndex(where: { $0.clip.id == clip.id && $0.trackID == trackID }) else { return }
         loadedClips[index].clip = clip
-        duration = max(duration, clip.timelineEnd)
+        recomputeDuration()
     }
 
     /// Removes a clip's player node from the graph entirely (deleting a recording).
@@ -328,6 +328,25 @@ final class MultiTrackEngine {
         let loadedClip = loadedClips.remove(at: index)
         loadedClip.player.stop()
         engine.detach(loadedClip.player)
+        recomputeDuration()
+    }
+
+    /// Re-derives the project length from what is actually loaded.
+    ///
+    /// `duration` used to only ever grow, via `max(duration, clip.timelineEnd)`
+    /// at every call site. Deleting the longest clip — or trimming it shorter —
+    /// left the old length behind, so the ruler and the total readout kept
+    /// claiming a project that no longer existed. Taking the max *across the
+    /// clips* instead of against the previous value makes the number fall as
+    /// well as rise.
+    private func recomputeDuration() {
+        let clipsEnd = loadedClips.map(\.clip.timelineEnd).max() ?? 0
+        // A take in progress runs past the last clip and the timeline has to
+        // keep up with it, so the live head still counts while recording.
+        let recordingEnd = (isRecording || isRecordingPaused) ? currentTime : 0
+        duration = max(clipsEnd, recordingEnd)
+        // The playhead can't sit past the end of a project that just got shorter.
+        if currentTime > duration { currentTime = duration }
     }
 
     // MARK: - Recording Pipeline

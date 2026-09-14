@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// User-facing appearance choices. Both are persisted with `@AppStorage` under the
 /// keys in `AppearanceKeys`, so any view can read them with the same one-liner.
@@ -11,10 +12,22 @@ enum AppearanceTheme: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// `nil` means "follow the device", which is what `preferredColorScheme` expects.
+    /// `nil` means "follow the device". The app shell styles itself through
+    /// `userInterfaceStyle` below; this is for the Appearance picker, which has to
+    /// draw previews of schemes that are not the current one.
     var colorScheme: ColorScheme? {
         switch self {
         case .system: nil
+        case .light:  .light
+        case .dark:   .dark
+        }
+    }
+
+    /// The UIKit equivalent, for the window-level override in
+    /// `AppearanceWindowStyler`. `.unspecified` is UIKit's "follow the device".
+    var userInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: .unspecified
         case .light:  .light
         case .dark:   .dark
         }

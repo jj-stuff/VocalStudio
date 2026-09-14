@@ -3,6 +3,9 @@ import SwiftUI
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
+    /// Keeps the window's colour scheme in step with the saved appearance setting.
+    /// Held for the scene's lifetime — it owns the defaults observer.
+    private var appearanceStyler: AppearanceWindowStyler?
 
     #if DEBUG
     private let store: ProjectStoreInterface = DevSeedingProjectStore(wrapping: FileProjectStore())
@@ -20,8 +23,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let root = UIHostingController(rootView: RootView(store: store))
         root.view.backgroundColor = .systemBackground
 
-        window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = root
-        window?.makeKeyAndVisible()
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = root
+        // Before `makeKeyAndVisible`, so the first frame is already in the saved
+        // theme rather than flashing the system one.
+        appearanceStyler = AppearanceWindowStyler(window: window)
+        window.makeKeyAndVisible()
+        self.window = window
     }
 }

@@ -9,8 +9,16 @@ enum AppConfig {
     /// The in-app brand: Siasca, from Thai เสียง (sǐang, "sound") and Swedish
     /// skapa ("to create"). The Xcode target and bundle id are still "Vocal
     /// Studio" — renaming those is a separate, riskier change, and nothing the
-    /// user sees comes from them (the home-screen name is CFBundleDisplayName).
+    /// user sees comes from them (the home-screen name is CFBundleDisplayName,
+    /// set to Siasca in the target's build settings).
     static let appName = "Siasca"
+
+    /// What the project list calls itself in its large title. Deliberately not
+    /// `appName`: the brand is already on the home screen and the App Store
+    /// listing, so repeating it at the top of the only screen in the app spends
+    /// the title on something the user already knows. "Studio" says where you
+    /// are instead — the same move Photos and Files make.
+    static var homeTitle: String { String(localized: "Studio") }
 
     // MARK: - Contact & links
     //

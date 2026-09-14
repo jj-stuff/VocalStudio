@@ -353,6 +353,11 @@ final class EditorViewModel {
               let ci = tracks[ti].clips.firstIndex(where: { $0.id == clipID }) else { return }
         tracks[ti].clips.remove(at: ci)
         engine.removeClip(id: clipID, trackID: trackID)
+        // The engine re-derives the project length on removal, and it can now get
+        // shorter. Mirror it immediately rather than waiting on the next poll tick,
+        // so the ruler and the total readout snap back with the deletion itself.
+        duration = engine.duration
+        currentTime = engine.currentTime
         if selectedClipID == clipID { selectedClipID = nil }
 
         if tracks[ti].clips.isEmpty {

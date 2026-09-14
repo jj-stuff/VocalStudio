@@ -7,10 +7,14 @@ import SwiftUI
 /// two-tab bar spent a permanent strip of the screen on a choice nobody makes
 /// more than once a week. Settings lives behind the top-right button, the way
 /// Apple Music and Fitness handle their account screens.
+///
+/// The app theme is deliberately *not* applied here with `preferredColorScheme`:
+/// that modifier doesn't reach sheet presentations, so the Settings sheet kept
+/// the scheme it opened with. `AppearanceWindowStyler` sets it on the window
+/// instead, where every presentation inherits it.
 struct RootView: View {
     let store: ProjectStoreInterface
 
-    @AppStorage(AppearanceKeys.theme) private var theme: AppearanceTheme = .system
     @State private var entitlement = PlusEntitlement()
     @State private var path: [AppDestination] = []
     @State private var showingSettings = false
@@ -43,9 +47,6 @@ struct RootView: View {
             SettingsView(viewModel: SettingsViewModel(store: store))
                 .environment(entitlement)
         }
-        // The user's theme choice wins over the device setting. `nil` (System)
-        // hands control back to the OS.
-        .preferredColorScheme(theme.colorScheme)
         .task { await entitlement.refresh() }
     }
 

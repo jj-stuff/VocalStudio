@@ -45,7 +45,7 @@ struct ProjectListView: View {
         // Native large title + native search. On iPhone the search field lands in
         // the bottom toolbar next to the action buttons (the Mail/Files layout),
         // and minimises to a magnifier once the user scrolls.
-        .navigationTitle(AppConfig.appName)
+        .navigationTitle(AppConfig.homeTitle)
         .searchable(text: $searchQuery, prompt: Text("Search"))
         .searchToolbarBehavior(.minimize)
         .toolbar {
