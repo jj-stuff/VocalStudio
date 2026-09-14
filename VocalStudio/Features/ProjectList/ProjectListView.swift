@@ -73,6 +73,7 @@ struct ProjectListView: View {
                 }
                 .tint(.red)
                 .buttonStyle(.glassProminent)
+                .foregroundStyle(.white)
                 .accessibilityLabel("Record now")
                 .accessibilityHint("Starts a new project and begins recording immediately")
             }
@@ -187,7 +188,8 @@ struct ProjectListView: View {
                     .padding(.horizontal, DS.Spacing.sm)
             }
             .buttonStyle(.glassProminent)
-            .tint(.primary)
+            .tint(DS.Brand.accent)
+            .foregroundStyle(.white)
         }
     }
 

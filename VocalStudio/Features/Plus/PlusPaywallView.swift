@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Aria Plus screen. A placeholder until StoreKit is wired: it explains what
+/// The Siasca Plus screen. A placeholder until StoreKit is wired: it explains what
 /// Plus is for and shows a disabled purchase button, so the flow can be designed
 /// around a real screen now and the button only needs a real action later.
 struct PlusPaywallView: View {
@@ -31,7 +31,7 @@ struct PlusPaywallView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 40, weight: .medium))
                 .foregroundStyle(
-                    LinearGradient(colors: [DS.Brand.pink, DS.Brand.purple2],
+                    LinearGradient(colors: [DS.Brand.accent, DS.Brand.purple2],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
             Text(AppConfig.Plus.productName)
@@ -74,7 +74,8 @@ struct PlusPaywallView: View {
                     .padding(.vertical, DS.Spacing.xxs)
             }
             .buttonStyle(.glassProminent)
-            .tint(.primary)
+            .tint(DS.Brand.accent)
+            .foregroundStyle(.white)
             .disabled(!AppConfig.Plus.purchasingEnabled)
 
             Text("Plus is not on sale yet. Everything else in \(AppConfig.appName) is free.")

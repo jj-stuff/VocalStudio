@@ -3,7 +3,7 @@ import AVFoundation
 /// Peak data for drawing a clip's waveform: one value in 0...1 per bucket, at a
 /// fixed number of buckets per second of source audio. Immutable and Sendable so
 /// views can hold it and slice it freely.
-struct WaveformPeaks: Sendable, Equatable {
+nonisolated struct WaveformPeaks: Sendable, Equatable {
     static let bucketsPerSecond = 40
 
     let peaks: [Float]

@@ -1,16 +1,21 @@
-# Vocal Studio — Feature & UX Reference
+# Siasca — Feature & UX Reference
 
 What the app actually does today, screen by screen, framed around what the user can
 do and how. Written for a design pass — everything here is current, real behavior,
 not roadmap. Where something looks functional but isn't wired to anything real, it's
 called out explicitly so design doesn't build around a stub.
 
-**Naming note**: the Xcode project/bundle is still "Vocal Studio" — that hasn't
-changed. The in-app brand shown to users is **"Aria"**. The visual direction is a
-clean, light-first, near-monochrome look (in the spirit of ElevenLabs' iOS app):
-system backgrounds, white cards, black-on-white controls, color reserved for
-content (project orbs, clips) and for two deliberate accents — red for
-record/mute, lavender for the on-device AI separation feature.
+**Naming note**: the Xcode project, target and bundle id are still "Vocal Studio";
+the brand everywhere the user can see is **Siasca** (Thai เสียง *sǐang*, sound,
+plus Swedish *skapa*, to create). `CFBundleDisplayName` carries it to the home
+screen and `AppConfig.appName` carries it everywhere in-app.
+
+**Visual direction**: near-monochrome, system-first, working in both light and
+dark. One accent (`DS.Brand.accent`, also the target's AccentColor) for anything
+interactive that needs to stand out, red reserved for record and mute, and colour
+otherwise reserved for content — the clips on the timeline. Liquid Glass appears
+only where content actually scrolls beneath it: the transport over the timeline,
+the toolbar over the project list. Everything else is flat.
 
 ## Core concept
 
@@ -35,7 +40,7 @@ settings, applied at the root. Every screen sits on `AppBackground`.
 
 ## Screen: Projects (list)
 
-**Title**: native large title "Aria"; profile button top-right opens Settings.
+**Title**: native large title "Siasca"; profile button top-right opens Settings.
 
 **Empty state** (no projects yet): a centered icon, "No Projects Yet," and a single
 "Import Track" button that opens the same import menu as the "+" button.
@@ -119,7 +124,7 @@ recording). Rewind is disabled while recording.
 ### 4. Track panel (sheet, slides up from the bottom)
 
 Opened by tapping any track header. Always shows **Volume**. For vocal/recording
-tracks it also shows **Autotune** (Aria Plus — locked with a badge; tapping opens
+tracks it also shows **Autotune** (Siasca Plus — locked with a badge; tapping opens
 the paywall placeholder), **Reverb** and **EQ**.
 
 Renaming the project is in the "…" menu in the navigation bar (custom card, not
@@ -163,7 +168,7 @@ Separate button doesn't appear for them.
 
 Native inset-grouped list, close button top-left. Top to bottom:
 
-- **Upgrade to Aria Plus** banner (hidden once Plus is active) → paywall
+- **Upgrade to Siasca Plus** banner (hidden once Plus is active) → paywall
   placeholder. Autotune is the first Plus-only feature; StoreKit is not wired.
 - **Appearance** → App Theme (System / Light / Dark) and Background (Minimal /
   Plain), each as a row of preview cards.
@@ -189,7 +194,7 @@ runtime.
 - **Autotune panel** — fully interactive UI, zero effect on audio. See above.
 - **Waveforms on project cards** are decorative. Clips in the timeline draw real
   peaks.
-- **Aria Plus** — the banner, paywall and Autotune lock are real UI with no
+- **Siasca Plus** — the banner, paywall and Autotune lock are real UI with no
   purchase behind them (`AppConfig.Plus.purchasingEnabled` is false).
 - **Reverb/EQ/Volume settings don't persist** — they apply live during the session
   but reset to defaults the next time you open the project. Re-adjust each time, for

@@ -1,0 +1,29 @@
+Copyright (c) 2026 Stephan Bordellier. All rights reserved.
+
+This source code is made publicly viewable so that it can be read and evaluated,
+for example by prospective employers, collaborators, or anyone curious about how
+the app works.
+
+You may view the source and clone the repository to build and run it locally for
+personal evaluation.
+
+You may not redistribute this source code or any derivative of it, publish or
+distribute a build of it (including to any app store), or use it or any part of
+it in a commercial product, without prior written permission from the copyright
+holder.
+
+Third-party components keep their own licences:
+
+  - Instrument Serif is used under the SIL Open Font License. See
+    VocalStudio/Resources/Fonts/InstrumentSerif-OFL.txt.
+  - The bundled stem-separation model derives from the Demucs project
+    (https://github.com/facebookresearch/demucs) and is subject to that
+    project's licence and the licence of the pretrained weights it was
+    converted from.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

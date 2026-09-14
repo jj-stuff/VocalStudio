@@ -59,19 +59,29 @@ struct EditorTimelineView: View {
                 duration: duration
             )
 
+            // The panel always fills the screen even with one track, so the grid
+            // reads as a surface the audio sits on rather than a card that stops
+            // halfway down. Lanes only exist where there are tracks; the rest is
+            // empty timeline, which is exactly what it is.
+            let contentHeight = max(lanesHeight, proxy.size.height)
+            // Only make room for the floating transport when the lanes are actually
+            // long enough to go under it — otherwise a one-track project scrolls
+            // 150pt for no reason.
+            let needsBottomRoom = lanesHeight + bottomInset > proxy.size.height
+
             ScrollView(.vertical) {
                 HStack(alignment: .top, spacing: 0) {
                     headerColumn
-                        .frame(width: Self.headerWidth, height: lanesHeight)
+                        .frame(width: Self.headerWidth, height: contentHeight)
 
-                    horizontalTimeline(geometry)
-                        .frame(height: lanesHeight)
+                    horizontalTimeline(geometry, height: contentHeight)
+                        .frame(height: contentHeight)
                 }
                 // A finished take slides its new row in instead of popping, and the
                 // live recording lane appears/disappears the same way.
                 .animation(DS.Animation.spring, value: rowCount)
             }
-            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .contentMargins(.bottom, needsBottomRoom ? bottomInset : 0, for: .scrollContent)
             .scrollIndicators(.hidden)
             .simultaneousGesture(pinchGesture)
             // Playback (and recording) pull the content along under the playhead.
@@ -102,6 +112,7 @@ struct EditorTimelineView: View {
                 RecordingHeaderView()
                     .frame(height: Self.trackHeight)
             }
+            Spacer(minLength: 0)
         }
         .background(.thinMaterial)
         .overlay(alignment: .trailing) {
@@ -111,13 +122,13 @@ struct EditorTimelineView: View {
 
     // MARK: - Scrolling timeline
 
-    private func horizontalTimeline(_ geometry: TimelineGeometry) -> some View {
+    private func horizontalTimeline(_ geometry: TimelineGeometry, height: CGFloat) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 // Leading pad: lets time 0 reach the playhead.
                 Color.clear.frame(width: geometry.leadingPadding)
                 lanes(geometry)
-                    .frame(width: geometry.timelineWidth)
+                    .frame(width: geometry.timelineWidth, height: height, alignment: .top)
                 // Trailing pad: lets the end of the project reach the playhead.
                 Color.clear.frame(width: geometry.trailingPadding)
             }
@@ -141,7 +152,7 @@ struct EditorTimelineView: View {
         }
         .overlay(alignment: .topLeading) {
             PlayheadView(isRecording: isRecording)
-                .frame(height: lanesHeight)
+                .frame(height: height)
                 .offset(x: geometry.playheadX - 5)
         }
     }
@@ -176,6 +187,12 @@ struct EditorTimelineView: View {
                 RecordingLaneView(range: recordingRange, geometry: geometry)
                     .frame(height: Self.trackHeight)
             }
+
+            // Empty timeline below the last lane. Tapping it clears the clip
+            // selection, same as tapping empty space inside a lane.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { onSelectClip(nil) }
         }
     }
 

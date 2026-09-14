@@ -17,7 +17,7 @@ final class SettingsViewModel {
     var totalBytes: Int64 { folderUsage.reduce(0) { $0 + $1.bytes } }
 
     func refresh() {
-        folderUsage = AppStorage.usageByFolder()
+        folderUsage = ManagedAudioStorage.usageByFolder()
     }
 
     /// Removes files in the managed audio folders that no current project
@@ -35,7 +35,7 @@ final class SettingsViewModel {
                 for stem in project.stems { referenced.insert(stem.url.path) }
                 for recording in project.recordings { referenced.insert(recording.url.path) }
             }
-            let deletedCount = AppStorage.deleteOrphanedFiles(referencedPaths: referenced)
+            let deletedCount = ManagedAudioStorage.deleteOrphanedFiles(referencedPaths: referenced)
             refresh()
             lastActionMessage = deletedCount > 0
                 ? "Removed \(deletedCount) unused file\(deletedCount == 1 ? "" : "s")."
@@ -54,7 +54,7 @@ final class SettingsViewModel {
             for project in projects {
                 try await store.delete(id: project.id)
             }
-            AppStorage.deleteAllManagedFiles()
+            ManagedAudioStorage.deleteAllManagedFiles()
             refresh()
             lastActionMessage = "Deleted all projects."
         } catch {

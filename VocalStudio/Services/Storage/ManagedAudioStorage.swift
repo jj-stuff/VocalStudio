@@ -3,7 +3,7 @@ import Foundation
 /// Pure FileManager queries over the app's managed audio folders (Documents/Audio,
 /// Recordings, Stems) — no state of its own, so a static namespace rather than an
 /// injected service is appropriate here (same reasoning as a stateless formatter).
-enum AppStorage {
+enum ManagedAudioStorage {
     static let managedFolderNames = ["Audio", "Recordings", "Stems"]
 
     static func usageByFolder() -> [(name: String, bytes: Int64)] {

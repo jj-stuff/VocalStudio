@@ -78,7 +78,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Aria Plus banner
+    // MARK: - Siasca Plus banner
     //
     // The Mist-style upgrade card at the top. Tinted with the brand purple so it
     // stands apart from the monochrome rows below it. Hidden once the user has Plus.
@@ -112,7 +112,7 @@ struct SettingsView: View {
             .buttonStyle(.plain)
             .listRowBackground(
                 LinearGradient(
-                    colors: [DS.Brand.pink, DS.Brand.purple2],
+                    colors: [DS.Brand.accent, DS.Brand.purple2],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
             )

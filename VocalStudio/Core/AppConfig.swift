@@ -6,20 +6,23 @@ import Foundation
 /// build time on purpose (no network dependency, no surprise changes).
 enum AppConfig {
 
-    /// The in-app brand. The Xcode target/bundle is still "Vocal Studio".
-    static let appName = "Aria"
+    /// The in-app brand: Siasca, from Thai เสียง (sǐang, "sound") and Swedish
+    /// skapa ("to create"). The Xcode target and bundle id are still "Vocal
+    /// Studio" — renaming those is a separate, riskier change, and nothing the
+    /// user sees comes from them (the home-screen name is CFBundleDisplayName).
+    static let appName = "Siasca"
 
     // MARK: - Contact & links
     //
     // Placeholders until the real domain is live. Keep them valid URLs so the
     // `Link`s in Settings never silently no-op.
 
-    static let supportEmail = "support@aria.app"
-    static let websiteURL = URL(string: "https://stephanbordellier.com")!
-    static let privacyPolicyURL = URL(string: "https://stephanbordellier.com/aria/privacy")!
-    static let termsOfServiceURL = URL(string: "https://stephanbordellier.com/aria/terms")!
+    static let supportEmail = "support@siasca.app"
+    static let websiteURL = URL(string: "https://stephanbordellier.com/siasca")!
+    static let privacyPolicyURL = URL(string: "https://stephanbordellier.com/siasca/privacy")!
+    static let termsOfServiceURL = URL(string: "https://stephanbordellier.com/siasca/terms")!
 
-    /// App Store ID placeholder — used by the "Rate Aria" row once the app is listed.
+    /// App Store ID placeholder — used by the "Rate Siasca" row once the app is listed.
     static let appStoreID = "000000000"
     static var appStoreReviewURL: URL {
         URL(string: "https://apps.apple.com/app/id\(appStoreID)?action=write-review")!
@@ -47,14 +50,14 @@ enum AppConfig {
         return "\(version) (\(build))"
     }
 
-    // MARK: - Aria Plus (the paid tier)
+    // MARK: - Siasca Plus (the paid tier)
     //
     // Autotune is the first Plus-only feature. StoreKit isn't wired yet — the
     // paywall is a placeholder screen and `PlusEntitlement` always reports free.
     // When purchases land, only `PlusEntitlement` should need to change.
 
     enum Plus {
-        static let productName = "Aria Plus"
+        static let productName = "Siasca Plus"
         /// Set to true once StoreKit products exist and the paywall can actually sell.
         static let purchasingEnabled = false
     }

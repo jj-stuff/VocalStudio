@@ -182,7 +182,8 @@ struct EditorView: View {
 
                     Button("Save", action: commitRename)
                         .buttonStyle(.glassProminent)
-                        .tint(.primary)
+                        .tint(DS.Brand.accent)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -273,7 +274,7 @@ private struct SeparateButton: View {
             Button(action: action) {
                 Label("Separate", systemImage: "waveform.badge.plus")
             }
-            .tint(DS.Brand.purple2)
+            .tint(DS.Brand.accent)
             .accessibilityLabel("Separate vocals from instrumental")
 
         case .running(let progress):

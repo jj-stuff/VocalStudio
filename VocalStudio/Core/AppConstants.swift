@@ -41,13 +41,20 @@ enum DS {
 // (ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES).
 // Edit the hue in the asset catalog, not here.
 //
-// "Aria" direction (cool twilight): a single analogous purple family, deliberately
+// "Siasca" direction (cool twilight): a single analogous purple family, deliberately
 // no separate hue per token — `pink` keeps its name (renaming touches every call
 // site for no behavioral gain) but is now a mid-purple, not magenta.
 
 extension DS {
     enum Brand {
-        static let purple1 = Color(.brandPurple1)  // light lavender — primary accent
+        /// The one accent. Defined per-appearance in the asset catalog (deeper in
+        /// light, brighter in dark) so white sits on it legibly either way — which
+        /// is why prominent buttons tint with this and never with `.primary`
+        /// (a `.primary` tint in dark mode paints a white capsule under white text).
+        /// Also set as the target's AccentColor, so system controls follow it.
+        static let accent  = Color(.brandAccent)
+
+        static let purple1 = Color(.brandPurple1)  // light lavender
         static let purple2 = Color(.brandPurple2)  // deep purple — gradient end
         static let pink    = Color(.brandPink)     // mid purple
         static let teal    = Color(.brandTeal)
@@ -58,13 +65,13 @@ extension DS {
 // MARK: - Brand typeface
 //
 // Instrument Serif (OFL-licensed, bundled in Resources/Fonts) is the wordmark/
-// display face — used sparingly, the way the brand doc uses it: the "Aria"
+// display face — used sparingly, the way the brand doc uses it: the "Siasca"
 // wordmark itself and a handful of hero headlines. Everything else (body text,
 // controls) stays system font, matching the doc's "Instrument Serif · SF Pro" pairing.
 
 extension DS {
     enum Font {
-        /// The italic wordmark face — use only for the literal "Aria" logotype.
+        /// The italic wordmark face — use only for the literal "Siasca" logotype.
         static func wordmark(_ size: CGFloat) -> SwiftUI.Font {
             .custom("InstrumentSerif-Italic", size: size)
         }
